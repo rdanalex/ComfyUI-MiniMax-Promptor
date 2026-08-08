@@ -17,7 +17,7 @@ import comfy.model_management as model_management
 from comfy_api.latest import io
 
 from .config_manager import get_config_manager
-from .utils import log_info, log_error, tensor_to_base64, _create_provider
+from .utils import log_info, log_error, tensor_to_base64, audio_to_base64, _create_provider
 
 
 PRESETS_FILE = Path(__file__).parent.parent / "vision_prompts.json"
