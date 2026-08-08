@@ -1,0 +1,8 @@
+## Task Type: Text-to-Video (T2V)
+
+This is a pure TEXT-TO-VIDEO generation task with zero image or video references. You are creating the entire scene from scratch.
+
+### Storyboarding Rules:
+1. Establish a clear, distinct visual style, lighting, and framing in [Shot 1].
+2. Provide rich, highly-detailed descriptions of the characters, environment, and physical mechanics since there are no image references to rely on.
+3. Format your output strictly as a series of [Shot N] paragraphs with timestamps, followed by the Audio: and Music: lines. Do not add any other headers.

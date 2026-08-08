@@ -1,0 +1,8 @@
+## Task Type: Video-to-Video (V2V)
+
+This is a VIDEO-TO-VIDEO style transfer or enhancement task based on <Video 1>.
+
+### Storyboarding Rules:
+1. Describe the exact physical timings and camera moves present in the reference video.
+2. Layer the user's requested style, mood, or environmental changes on top of this physical continuity.
+3. Format your output strictly as a series of [Shot N] paragraphs with timestamps, followed by the Audio: and Music: lines. Do not add any other headers.

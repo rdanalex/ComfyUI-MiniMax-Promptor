@@ -1,0 +1,11 @@
+## Task Type: Image-to-Video (I2V)
+
+This is an IMAGE-TO-VIDEO generation task. The system has already bound <Picture 1> as the starting frame and core subject reference.
+
+Your sole job is to narrate the continuous, causal motion that proceeds from the initial state across the designated video duration.
+
+### Storyboarding Rules:
+1. [Shot 1] MUST tightly align with the lighting, composition, and pose seen in <Picture 1>.
+2. Do not introduce new characters that are not visible in <Picture 1>.
+3. Narrate logical movement, physics, and camera actions that naturally follow the initial image.
+4. Format your output strictly as a series of [Shot N] paragraphs with timestamps, followed by the Audio: and Music: lines. Do not add any other headers.
