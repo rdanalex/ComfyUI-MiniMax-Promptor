@@ -14,9 +14,13 @@ import io
 import re
 import numpy as np
 
+# Try importing audio_to_base64_string without triggering apinode_utils'
+# top-level `import aiohttp` (which fails when the full module can't load).
 try:
-    from comfy_api_nodes.apinode_utils import audio_to_base64_string
-except ImportError:
+    import importlib as _importlib
+    _apinode_utils = _importlib.import_module("comfy_api_nodes.apinode_utils")
+    audio_to_base64_string = getattr(_apinode_utils, "audio_to_base64_string", None)
+except Exception:
     audio_to_base64_string = None
 
 
@@ -111,22 +115,71 @@ def audio_to_base64(audio, container_format: str = "mp3", codec_name: str = "lib
     except Exception:
         AudioSegment = None
 
+    # --- Try direct av-based conversion first (mirrors apinode_utils logic) ---
+    # ComfyUI AUDIO is a dict: {"waveform": Tensor[C, N], "sample_rate": int}
+    try:
+        import av as _av
+        import torch as _torch
+
+        waveform = None
+        sr = None
+
+        if isinstance(audio, dict):
+            waveform = audio.get("waveform")
+            sr = audio.get("sample_rate")
+        if waveform is None and hasattr(audio, "waveform"):
+            waveform = getattr(audio, "waveform")
+        if sr is None:
+            sr = getattr(audio, "sample_rate", 44100)
+
+        if waveform is not None:
+            output_buffer = io.BytesIO()
+            av_fmt = "mp3" if container_format == "mp3" else "wav"
+            av_codec = codec_name if container_format == "mp3" else "pcm_s16le"
+            output_container = _av.open(output_buffer, mode="w", format=av_fmt)
+            # waveform shape: [C, N] or [B, C, N] — use first batch if needed
+            if waveform.ndim == 3:
+                waveform = waveform[0]
+            channels = waveform.shape[0]
+            layout = "mono" if channels == 1 else "stereo"
+            out_stream = output_container.add_stream(av_codec, rate=int(sr))
+            frame = _av.AudioFrame.from_ndarray(
+                waveform.movedim(0, 1).reshape(1, -1).float().numpy(),
+                format="flt",
+                layout=layout,
+            )
+            frame.sample_rate = int(sr)
+            frame.pts = 0
+            output_container.mux(out_stream.encode(frame))
+            output_container.mux(out_stream.encode(None))
+            output_container.close()
+            output_buffer.seek(0)
+            return base64.b64encode(output_buffer.getvalue()).decode("utf-8")
+    except Exception as _av_err:
+        log_debug(f"av-based audio conversion failed ({_av_err}), trying fallback...")
+
+    # --- Legacy fallback: numpy / soundfile / pydub path ---
     # Normalize audio data extraction
     samples = None
     sample_rate = None
 
-    # Common ComfyUI audio wrappers: dict-like with 'array'/'audio' and 'sample_rate'
+    # ComfyUI AUDIO dict keys: 'waveform', 'sample_rate'
     if isinstance(audio, dict):
-        samples = audio.get("array") or audio.get("audio") or audio.get("samples")
+        samples = (
+            audio.get("waveform")
+            or audio.get("array")
+            or audio.get("audio")
+            or audio.get("samples")
+        )
         sample_rate = audio.get("sample_rate") or audio.get("sr") or audio.get("samplerate")
 
     # Objects with attributes
     if samples is None:
-        if hasattr(audio, "array"):
-            samples = getattr(audio, "array")
-        elif hasattr(audio, "samples"):
-            samples = getattr(audio, "samples")
-        elif hasattr(audio, "numpy"):
+        for _attr in ("waveform", "array", "samples"):
+            if hasattr(audio, _attr):
+                samples = getattr(audio, _attr)
+                break
+        if samples is None and hasattr(audio, "numpy"):
             try:
                 samples = audio.numpy()
             except Exception:
@@ -148,7 +201,10 @@ def audio_to_base64(audio, container_format: str = "mp3", codec_name: str = "lib
             mime = "audio/mpeg" if container_format == "mp3" else "audio/wav"
             return f"data:{mime};base64," + base64.b64encode(b).decode("utf-8")
 
-        raise RuntimeError("Missing comfy_api_nodes.apinode_utils.audio_to_base64_string; cannot convert audio.")
+        raise RuntimeError(
+            "Cannot convert audio: no supported backend (av/soundfile/pydub) succeeded "
+            "and audio object has no recognized waveform attribute."
+        )
 
     # Ensure numpy array and shape
     import numpy as _np
