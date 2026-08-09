@@ -24,6 +24,11 @@
       "api_base": "https://openrouter.ai/api/v1",
       "api_key": "",
       "default_model": "google/gemma-3-27b-it:free"
+    },
+    "nvidia": {
+      "api_base": "https://integrate.api.nvidia.com/v1",
+      "api_key": "",
+      "default_model": "meta/llama-3.2-90b-vision-instruct"
     }
   },
   "defaults": {

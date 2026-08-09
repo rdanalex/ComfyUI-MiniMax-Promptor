@@ -45,6 +45,11 @@ DEFAULT_CONFIG = {
             "api_key": "",
             "default_model": "moonshotai/kimi-vl-a3b-thinking:free",
         },
+        "nvidia": {
+            "api_base": "https://integrate.api.nvidia.com/v1",
+            "api_key": "",
+            "default_model": "meta/llama-3.2-90b-vision-instruct",
+        },
     },
     "defaults": {
         "provider": "openai",
