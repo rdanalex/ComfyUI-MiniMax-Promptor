@@ -219,16 +219,24 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     )
 
                     if response.success:
-                        try:
-                            clean_content = response.content.strip()
-                            if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                            if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                        clean_content = response.content.strip()
+                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                        if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
+                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                        clean_content = clean_content.strip()
 
-                            parsed = json.loads(clean_content.strip())
-                            final_dict[target_key] = parsed.get(target_key, clean_content)
+                        try:
+                            parsed = json.loads(clean_content)
+                            if isinstance(parsed, dict):
+                                # Extract value using target_key, or first dict value if model used a different key
+                                val = parsed.get(target_key)
+                                if not val and parsed:
+                                    val = list(parsed.values())[0]
+                                final_dict[target_key] = str(val) if val else clean_content
+                            else:
+                                final_dict[target_key] = clean_content
                         except json.JSONDecodeError:
-                            # If response is plain text rather than JSON key-value, use it as value
-                            final_dict[target_key] = response.content.strip()
+                            final_dict[target_key] = clean_content
                     else:
                         log_error(f"API Error in {target_key}: {response.error}")
                         final_dict[target_key] = f"API Error: {response.error}"
