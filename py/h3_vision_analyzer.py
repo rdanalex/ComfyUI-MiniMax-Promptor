@@ -103,6 +103,7 @@ class H3_Vision_Analyzer(io.ComfyNode):
 
                 io.Combo.Input("output_language", options=["English", "Chinese"], default="English", tooltip="Language for the analysis output.", optional=True),
                 io.Combo.Input("provider", options=PROVIDERS, default="openai", tooltip="Vision LLM provider to use for analysis.", optional=True),
+                io.Boolean.Input("dry_run", default=False, tooltip="Sandbox mode: Bypasses live API calls, returning mock descriptions and exact prompt structures without spending tokens.", optional=True),
                 io.String.Input("api_key", default="", tooltip="API key override.", optional=True),
                 io.String.Input("model_name", default="", tooltip="Model override (e.g. gpt-4o, qwen-vl-max).", optional=True),
                 io.Float.Input("temperature", default=0.2, min=0.0, max=1.0, step=0.05, optional=True),
@@ -120,6 +121,7 @@ class H3_Vision_Analyzer(io.ComfyNode):
         global_video_mode: str,
         output_language: str = "English",
         provider: str = "openai",
+        dry_run: bool = False,
         api_key: str = "",
         model_name: str = "",
         custom_prompt_override: str = "",
@@ -209,37 +211,40 @@ class H3_Vision_Analyzer(io.ComfyNode):
                         interleaved_payload.append({"image": f})
 
                     log_info(f"Analyzer calling {provider} for {target_key}...")
-                    response = llm.chat(
-                        system_prompt=system_prompt,
-                        user_message="",
-                        base64_images=interleaved_payload,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        model=model_override,
-                    )
-
-                    if response.success:
-                        clean_content = response.content.strip()
-                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                        if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
-                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                        clean_content = clean_content.strip()
-
-                        try:
-                            parsed = json.loads(clean_content)
-                            if isinstance(parsed, dict):
-                                # Extract value using target_key, or first dict value if model used a different key
-                                val = parsed.get(target_key)
-                                if not val and parsed:
-                                    val = list(parsed.values())[0]
-                                final_dict[target_key] = str(val) if val else clean_content
-                            else:
-                                final_dict[target_key] = clean_content
-                        except json.JSONDecodeError:
-                            final_dict[target_key] = clean_content
+                    if dry_run:
+                        final_dict[target_key] = f"[SANDBOX MOCK] Prompt: '{active_prompt}' | Media: {target_key} (1 frame, {len(frames[0]) if frames else 0} base64 bytes)"
                     else:
-                        log_error(f"API Error in {target_key}: {response.error}")
-                        final_dict[target_key] = f"API Error: {response.error}"
+                        response = llm.chat(
+                            system_prompt=system_prompt,
+                            user_message="",
+                            base64_images=interleaved_payload,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            model=model_override,
+                        )
+
+                        if response.success:
+                            clean_content = response.content.strip()
+                            if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                            if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
+                            if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                            clean_content = clean_content.strip()
+
+                            try:
+                                parsed = json.loads(clean_content)
+                                if isinstance(parsed, dict):
+                                    # Extract value using target_key, or first dict value if model used a different key
+                                    val = parsed.get(target_key)
+                                    if not val and parsed:
+                                        val = list(parsed.values())[0]
+                                    final_dict[target_key] = str(val) if val else clean_content
+                                else:
+                                    final_dict[target_key] = clean_content
+                            except json.JSONDecodeError:
+                                final_dict[target_key] = clean_content
+                        else:
+                            log_error(f"API Error in {target_key}: {response.error}")
+                            final_dict[target_key] = f"API Error: {response.error}"
 
                     img_index += 1
 
@@ -259,36 +264,39 @@ class H3_Vision_Analyzer(io.ComfyNode):
                         interleaved_payload.append({"image": f})
                     
                     log_info(f"Analyzer calling {provider} for {target_key} ({len(frames)} frames)...")
-                    response = llm.chat(
-                        system_prompt=system_prompt,
-                        user_message="",
-                        base64_images=interleaved_payload,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        model=model_override,
-                    )
-                    
-                    if response.success:
-                        clean_content = response.content.strip()
-                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                        if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
-                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                        clean_content = clean_content.strip()
-
-                        try:
-                            parsed = json.loads(clean_content)
-                            if isinstance(parsed, dict):
-                                val = parsed.get(target_key)
-                                if not val and parsed:
-                                    val = list(parsed.values())[0]
-                                final_dict[target_key] = str(val) if val else clean_content
-                            else:
-                                final_dict[target_key] = clean_content
-                        except json.JSONDecodeError:
-                            final_dict[target_key] = clean_content
+                    if dry_run:
+                        final_dict[target_key] = f"[SANDBOX MOCK] Prompt: '{active_prompt}' | Media: {target_key} ({len(frames)} frames extracted)"
                     else:
-                        log_error(f"API Error in Video {vid_index}: {response.error}")
-                        final_dict[target_key] = f"API Error: {response.error}"
+                        response = llm.chat(
+                            system_prompt=system_prompt,
+                            user_message="",
+                            base64_images=interleaved_payload,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            model=model_override,
+                        )
+                        
+                        if response.success:
+                            clean_content = response.content.strip()
+                            if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                            if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
+                            if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                            clean_content = clean_content.strip()
+
+                            try:
+                                parsed = json.loads(clean_content)
+                                if isinstance(parsed, dict):
+                                    val = parsed.get(target_key)
+                                    if not val and parsed:
+                                        val = list(parsed.values())[0]
+                                    final_dict[target_key] = str(val) if val else clean_content
+                                else:
+                                    final_dict[target_key] = clean_content
+                            except json.JSONDecodeError:
+                                final_dict[target_key] = clean_content
+                        else:
+                            log_error(f"API Error in Video {vid_index}: {response.error}")
+                            final_dict[target_key] = f"API Error: {response.error}"
                         
                     vid_index += 1
 
@@ -299,42 +307,46 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     target_key = f"<Audio {aud_index}>"
                     media_keys.append(target_key)
                     aud_prompt = overrides.get(target_key, "Analyze this audio track in detail: describe its rhythm, tempo, sound effects, environmental ambience, dialogue/vocal tone, or musical style.")
+                    base64_audio = audio_to_base64(aud, container_format="mp3", codec_name="libmp3lame")
                     interleaved_payload = [
                         {"text": f"{target_key}: Please analyze this audio reference -> {aud_prompt}"},
                         {"audio": base64_audio},
                     ]
                     
                     log_info(f"Analyzer calling {provider} for {target_key} (audio)...")
-                    response = llm.chat(
-                        system_prompt=system_prompt,
-                        user_message="",
-                        base64_images=interleaved_payload,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        model=model_override,
-                    )
-                    
-                    if response.success:
-                        clean_content = response.content.strip()
-                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                        if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
-                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                        clean_content = clean_content.strip()
-
-                        try:
-                            parsed = json.loads(clean_content)
-                            if isinstance(parsed, dict):
-                                val = parsed.get(target_key)
-                                if not val and parsed:
-                                    val = list(parsed.values())[0]
-                                final_dict[target_key] = str(val) if val else clean_content
-                            else:
-                                final_dict[target_key] = clean_content
-                        except json.JSONDecodeError:
-                            final_dict[target_key] = clean_content
+                    if dry_run:
+                        final_dict[target_key] = f"[SANDBOX MOCK] Prompt: '{aud_prompt}' | Media: {target_key} (audio converted, {len(base64_audio)} base64 chars)"
                     else:
-                        log_error(f"API Error in Audio {aud_index}: {response.error}")
-                        final_dict[target_key] = f"API Error: {response.error}"
+                        response = llm.chat(
+                            system_prompt=system_prompt,
+                            user_message="",
+                            base64_images=interleaved_payload,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            model=model_override,
+                        )
+                        
+                        if response.success:
+                            clean_content = response.content.strip()
+                            if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                            if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
+                            if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                            clean_content = clean_content.strip()
+
+                            try:
+                                parsed = json.loads(clean_content)
+                                if isinstance(parsed, dict):
+                                    val = parsed.get(target_key)
+                                    if not val and parsed:
+                                        val = list(parsed.values())[0]
+                                    final_dict[target_key] = str(val) if val else clean_content
+                                else:
+                                    final_dict[target_key] = clean_content
+                            except json.JSONDecodeError:
+                                final_dict[target_key] = clean_content
+                        else:
+                            log_error(f"API Error in Audio {aud_index}: {response.error}")
+                            final_dict[target_key] = f"API Error: {response.error}"
                         
                     aud_index += 1
 
@@ -347,29 +359,32 @@ class H3_Vision_Analyzer(io.ComfyNode):
             vibe_message = f"Based on the following individual media analyses:\n{context_str}\n\nProvide the final 'Global_Vibe' synthesis using this instruction: {vibe_prompt}"
             
             log_info(f"Analyzer calling {provider} for Global Vibe synthesis...")
-            vibe_res = llm.chat(
-                system_prompt=system_prompt,
-                user_message=vibe_message,
-                base64_images=None,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                model=model_override
-            )
-            
-            if vibe_res.success:
-                try:
-                    clean_content = vibe_res.content.strip()
-                    if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                    if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                    parsed = json.loads(clean_content.strip())
-                    final_dict["Global_Vibe"] = parsed.get("Global_Vibe", "Failed to synthesize.")
-                except json.JSONDecodeError:
-                    if "Global_Vibe" in vibe_res.content and "}" not in vibe_res.content:
-                        final_dict["Global_Vibe"] = vibe_res.content.replace('"', '').strip()
-                    else:
-                        final_dict["Global_Vibe"] = "LLM failed to return valid JSON for Global_Vibe."
+            if dry_run:
+                final_dict["Global_Vibe"] = f"[SANDBOX MOCK] Synthesized Global Vibe using instruction: '{vibe_prompt}'"
             else:
-                final_dict["Global_Vibe"] = f"API Error: {vibe_res.error}"
+                vibe_res = llm.chat(
+                    system_prompt=system_prompt,
+                    user_message=vibe_message,
+                    base64_images=None,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    model=model_override
+                )
+                
+                if vibe_res.success:
+                    try:
+                        clean_content = vibe_res.content.strip()
+                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                        parsed = json.loads(clean_content.strip())
+                        final_dict["Global_Vibe"] = parsed.get("Global_Vibe", "Failed to synthesize.")
+                    except json.JSONDecodeError:
+                        if "Global_Vibe" in vibe_res.content and "}" not in vibe_res.content:
+                            final_dict["Global_Vibe"] = vibe_res.content.replace('"', '').strip()
+                        else:
+                            final_dict["Global_Vibe"] = "LLM failed to return valid JSON for Global_Vibe."
+                else:
+                    final_dict["Global_Vibe"] = f"API Error: {vibe_res.error}"
                 
             # Embed media keys information to guarantee H3_Promptor can count accurately
             final_dict["_media_keys"] = media_keys
