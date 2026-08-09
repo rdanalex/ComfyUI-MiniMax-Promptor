@@ -319,6 +319,7 @@ def sanitize_llm_output(text: str) -> str:
 # LLM Provider Factory
 # ---------------------------------------------------------------------------
 from .provider_openai import OpenAIProvider
+from .provider_openrouter import OpenRouterProvider
 from .provider_ollama import OllamaProvider
 from .provider_gemini import GeminiProvider
 from .provider_claude import ClaudeProvider
@@ -339,5 +340,7 @@ def _create_provider(provider_name: str, config_manager, api_key_override: str =
         return GeminiProvider(api_base=api_base, api_key=api_key, model=model)
     elif provider_name == "claude":
         return ClaudeProvider(api_base=api_base, api_key=api_key, model=model)
+    elif provider_name == "openrouter":
+        return OpenRouterProvider(api_base=api_base, api_key=api_key, model=model)
     else:
         return OpenAIProvider(api_base=api_base, api_key=api_key, model=model)

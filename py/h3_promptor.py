@@ -17,7 +17,7 @@ from .utils import log_info, log_error, _create_provider
 
 
 # Provider options
-PROVIDERS = ["openai", "ollama", "gemini", "claude"]
+PROVIDERS = ["openai", "ollama", "gemini", "claude", "openrouter"]
 
 
 class H3_Promptor:

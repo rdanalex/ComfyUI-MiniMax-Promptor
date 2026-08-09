@@ -19,6 +19,11 @@
       "api_base": "https://api.anthropic.com/v1",
       "api_key": "",
       "default_model": "claude-3-5-sonnet-20241022"
+    },
+    "openrouter": {
+      "api_base": "https://openrouter.ai/api/v1",
+      "api_key": "",
+      "default_model": "google/gemma-3-27b-it:free"
     }
   },
   "defaults": {

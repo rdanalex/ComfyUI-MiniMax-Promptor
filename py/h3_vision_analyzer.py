@@ -66,7 +66,7 @@ IMAGE_MODES = list(PRESETS.get("image_prompts", DEFAULT_PRESETS["image_prompts"]
 VIDEO_MODES = list(PRESETS.get("video_prompts", DEFAULT_PRESETS["video_prompts"]).keys())
 
 
-PROVIDERS = ["openai", "ollama", "gemini", "claude"]
+PROVIDERS = ["openai", "ollama", "gemini", "claude", "openrouter"]
 
 
 class H3_Vision_Analyzer(io.ComfyNode):

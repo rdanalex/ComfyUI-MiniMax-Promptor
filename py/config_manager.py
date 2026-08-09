@@ -40,6 +40,11 @@ DEFAULT_CONFIG = {
             "api_key": "",
             "default_model": "claude-sonnet-4-20250514",
         },
+        "openrouter": {
+            "api_base": "https://openrouter.ai/api/v1",
+            "api_key": "",
+            "default_model": "moonshotai/kimi-vl-a3b-thinking:free",
+        },
     },
     "defaults": {
         "provider": "openai",
