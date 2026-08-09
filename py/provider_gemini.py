@@ -155,6 +155,13 @@ class GeminiProvider(LLMProvider):
                 content_parts = candidates[0].get("content", {}).get("parts", [])
                 content = "".join(p.get("text", "") for p in content_parts)
 
+                if not content.strip():
+                    finish_reason = candidates[0].get("finishReason", "UNKNOWN")
+                    return LLMResponse(
+                        error=f"Gemini candidate returned empty content (finishReason: {finish_reason}).",
+                        model=model_name,
+                    )
+
                 usage_meta = data.get("usageMetadata", {})
                 usage = {
                     "prompt_tokens": usage_meta.get("promptTokenCount", 0),

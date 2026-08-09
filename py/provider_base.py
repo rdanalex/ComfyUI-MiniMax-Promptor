@@ -32,7 +32,7 @@ class LLMResponse:
     @property
     def success(self) -> bool:
         """Whether the request was successful."""
-        return self.error is None and bool(self.content)
+        return self.error is None and bool(self.content and self.content.strip())
 
 
 class LLMProvider(ABC):

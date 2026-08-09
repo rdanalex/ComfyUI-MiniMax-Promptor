@@ -269,16 +269,23 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     )
                     
                     if response.success:
+                        clean_content = response.content.strip()
+                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                        if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
+                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                        clean_content = clean_content.strip()
+
                         try:
-                            clean_content = response.content.strip()
-                            if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                            if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                            
-                            parsed = json.loads(clean_content.strip())
-                            final_dict[target_key] = parsed.get(target_key, "Failed to analyze.")
+                            parsed = json.loads(clean_content)
+                            if isinstance(parsed, dict):
+                                val = parsed.get(target_key)
+                                if not val and parsed:
+                                    val = list(parsed.values())[0]
+                                final_dict[target_key] = str(val) if val else clean_content
+                            else:
+                                final_dict[target_key] = clean_content
                         except json.JSONDecodeError:
-                            log_error(f"JSON Error in Video {vid_index}.")
-                            final_dict[target_key] = "LLM failed to return valid JSON."
+                            final_dict[target_key] = clean_content
                     else:
                         log_error(f"API Error in Video {vid_index}: {response.error}")
                         final_dict[target_key] = f"API Error: {response.error}"
@@ -291,11 +298,9 @@ class H3_Vision_Analyzer(io.ComfyNode):
                 if aud is not None:
                     target_key = f"<Audio {aud_index}>"
                     media_keys.append(target_key)
-                    active_prompt = overrides.get(target_key, get_prompt_str(global_image_mode))
-                    
-                    base64_audio = audio_to_base64(aud, container_format="mp3", codec_name="libmp3lame")
+                    aud_prompt = overrides.get(target_key, "Analyze this audio track in detail: describe its rhythm, tempo, sound effects, environmental ambience, dialogue/vocal tone, or musical style.")
                     interleaved_payload = [
-                        {"text": f"{target_key}: Please analyze this audio reference based on the instruction -> {active_prompt}"},
+                        {"text": f"{target_key}: Please analyze this audio reference -> {aud_prompt}"},
                         {"audio": base64_audio},
                     ]
                     
@@ -310,16 +315,23 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     )
                     
                     if response.success:
+                        clean_content = response.content.strip()
+                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                        if clean_content.startswith("```"): clean_content = clean_content.replace("```", "", 1)
+                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
+                        clean_content = clean_content.strip()
+
                         try:
-                            clean_content = response.content.strip()
-                            if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                            if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                            
-                            parsed = json.loads(clean_content.strip())
-                            final_dict[target_key] = parsed.get(target_key, "Failed to analyze.")
+                            parsed = json.loads(clean_content)
+                            if isinstance(parsed, dict):
+                                val = parsed.get(target_key)
+                                if not val and parsed:
+                                    val = list(parsed.values())[0]
+                                final_dict[target_key] = str(val) if val else clean_content
+                            else:
+                                final_dict[target_key] = clean_content
                         except json.JSONDecodeError:
-                            log_error(f"JSON Error in Audio {aud_index}.")
-                            final_dict[target_key] = "LLM failed to return valid JSON."
+                            final_dict[target_key] = clean_content
                     else:
                         log_error(f"API Error in Audio {aud_index}: {response.error}")
                         final_dict[target_key] = f"API Error: {response.error}"
