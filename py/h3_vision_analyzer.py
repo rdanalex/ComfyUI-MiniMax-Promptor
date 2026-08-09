@@ -193,60 +193,47 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     return media_input
                 return [media_input]
 
-            # 1. Process All Images Together in ONE Standard Payload
-            img_list = list(img for img in _get_iterable(ref_images) if img is not None)
+            # 1. Process All Images Separately (1 Image per API call) to avoid multi-image endpoint limits
             img_index = 1
-            
-            if img_list:
-                interleaved_payload = []
-                chunk_keys = []
-                instructions = []
-                all_frames = []
-                
-                pos = 1
-                for img in img_list:
+            for img in _get_iterable(ref_images):
+                if img is not None:
                     target_key = f"<Picture {img_index}>"
                     media_keys.append(target_key)
-                    chunk_keys.append(target_key)
                     frames = tensor_to_base64(img, max_frames=1)
                     active_prompt = overrides.get(target_key, get_prompt_str(global_image_mode))
-                    
-                    instructions.append(f"Media {pos} is {target_key}: Please analyze based on the instruction -> {active_prompt}")
-                    all_frames.extend(frames)
-                    
+
+                    interleaved_payload = []
+                    mega_prompt = f"{target_key}: Please analyze this image based on the instruction -> {active_prompt}"
+                    interleaved_payload.append({"text": mega_prompt})
+                    for f in frames:
+                        interleaved_payload.append({"image": f})
+
+                    log_info(f"Analyzer calling {provider} for {target_key}...")
+                    response = llm.chat(
+                        system_prompt=system_prompt,
+                        user_message="",
+                        base64_images=interleaved_payload,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        model=model_override,
+                    )
+
+                    if response.success:
+                        try:
+                            clean_content = response.content.strip()
+                            if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
+                            if clean_content.endswith("```"): clean_content = clean_content[:-3]
+
+                            parsed = json.loads(clean_content.strip())
+                            final_dict[target_key] = parsed.get(target_key, clean_content)
+                        except json.JSONDecodeError:
+                            # If response is plain text rather than JSON key-value, use it as value
+                            final_dict[target_key] = response.content.strip()
+                    else:
+                        log_error(f"API Error in {target_key}: {response.error}")
+                        final_dict[target_key] = f"API Error: {response.error}"
+
                     img_index += 1
-                    pos += 1
-                    
-                mega_prompt = "Order of attached media:\n" + "\n".join(instructions)
-                interleaved_payload.append({"text": mega_prompt})
-                for f in all_frames:
-                    interleaved_payload.append({"image": f})
-                    
-                log_info(f"Analyzer calling {provider} for ALL IMAGES ({len(chunk_keys)} items)...")
-                response = llm.chat(
-                    system_prompt=system_prompt,
-                    user_message="",
-                    base64_images=interleaved_payload,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    model=model_override,
-                )
-                
-                if response.success:
-                    try:
-                        clean_content = response.content.strip()
-                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                        
-                        parsed = json.loads(clean_content.strip())
-                        for key in chunk_keys:
-                            final_dict[key] = parsed.get(key, "Failed to analyze.")
-                    except json.JSONDecodeError:
-                        log_error(f"JSON Error in Image Batch.")
-                        for key in chunk_keys: final_dict[key] = "LLM failed to return valid JSON."
-                else:
-                    log_error(f"API Error in Image Batch: {response.error}")
-                    for key in chunk_keys: final_dict[key] = f"API Error: {response.error}"
 
             # 2. Process Videos Logically Separately (1 Video per API call) to prevent Video dropping
             vid_index = 1
