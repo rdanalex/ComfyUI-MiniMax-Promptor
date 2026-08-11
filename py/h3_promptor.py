@@ -203,7 +203,8 @@ class H3_Promptor:
 
             # Dynamically compute subject definitions and alignment strings in Python
             subject_defs = self.prompt_builder.generate_subject_definitions(image_count, has_video, parsed_vision_dict=parsed_vision_dict)
-            alignment_inst = self.prompt_builder.generate_alignment_instruction(detected_type, duration, image_count)
+            alignment_inst = (self.prompt_builder.generate_alignment_instruction(
+                detected_type, duration, image_count) if image_count > 0 else "")
 
             # Defer to the LLM when it already emitted these sections,
             # preventing duplicate subject_definitions / alignment lines
