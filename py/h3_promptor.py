@@ -219,16 +219,32 @@ class H3_Promptor:
                 subject_defs=subject_defs,
                 alignment_inst=alignment_inst
             )
-            # 7. Deterministic polish (no-ops when patterns absent)
-            import re
+
+            # 7. Deterministic polish
             if "subject_definitions:" in cleaned_prompt:
-                # drop stray three-field header above the Ref2VA body
                 cleaned_prompt = re.sub(
                     r"\Aintegrated_multimodal_description:\s*\n", "", cleaned_prompt)
-                # drop range notation glued to shot headers ("[Shot 1] 0-15s —")
                 cleaned_prompt = re.sub(
                     r"(\[Shot \d+\])\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?s\s*[—-]\s*",
                     r"\1 ", cleaned_prompt)
+
+            # 8. Truncation safety net
+            if "non_diegetic_music:" not in cleaned_prompt:
+                cleaned_prompt += ("\n\nnon_diegetic_music: The complete final "
+                                   "audio track is <Audio 1>. No additional "
+                                   "audio is synthesized.")
+
+            # 9. Six-section backstop (Branch-2 runs only)
+            if ("summary:" not in cleaned_prompt
+                    and "subject_definitions:" in cleaned_prompt
+                    and "detailed_description:" in cleaned_prompt):
+                cleaned_prompt = cleaned_prompt.replace(
+                    "detailed_description:",
+                    "summary: reference generation + audio reuse\n\n"
+                    "retention_analysis:\n"
+                    "<Picture 1>/<Picture 2>: fully_preserved\n"
+                    "<Audio 1>: fully_copy\n\n"
+                    "detailed_description:", 1)
 
             log_info(
                 f"Prompt generated: {len(cleaned_prompt)} chars | "
