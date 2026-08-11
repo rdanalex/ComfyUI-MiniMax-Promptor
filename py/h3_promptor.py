@@ -219,6 +219,17 @@ class H3_Promptor:
                 subject_defs=subject_defs,
                 alignment_inst=alignment_inst
             )
+            # 7. Deterministic polish (no-ops when patterns absent)
+            import re
+            if "subject_definitions:" in cleaned_prompt:
+                # drop stray three-field header above the Ref2VA body
+                cleaned_prompt = re.sub(
+                    r"\Aintegrated_multimodal_description:\s*\n", "", cleaned_prompt)
+                # drop range notation glued to shot headers ("[Shot 1] 0-15s —")
+                cleaned_prompt = re.sub(
+                    r"(\[Shot \d+\])\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?s\s*[—-]\s*",
+                    r"\1 ", cleaned_prompt)
+
             log_info(
                 f"Prompt generated: {len(cleaned_prompt)} chars | "
                 f"model={response.model} | "
