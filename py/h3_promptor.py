@@ -246,6 +246,18 @@ class H3_Promptor:
                     "<Picture 1>/<Picture 2>: fully_preserved\n"
                     "<Audio 1>: fully_copy\n\n"
                     "detailed_description:", 1)
+            # 10. Normalize alignment line to the very top
+            am = re.search(r"(How the reference pictures align[^\n]*)\n", cleaned_prompt)
+            if am and not cleaned_prompt.startswith("How the reference pictures align"):
+                line = am.group(1)
+                cleaned_prompt = cleaned_prompt.replace(line + "\n", "", 1)
+                cleaned_prompt = line + "\n\n" + cleaned_prompt
+
+            # 11. Enforce fully_copy citation in the music section
+            if ("non_diegetic_music:" in cleaned_prompt
+                    and "No additional audio is synthesized" not in cleaned_prompt):
+                cleaned_prompt += (" The complete final audio track is <Audio 1>. "
+                                   "No additional audio is synthesized.")
 
             log_info(
                 f"Prompt generated: {len(cleaned_prompt)} chars | "
