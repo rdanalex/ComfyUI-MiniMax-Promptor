@@ -221,6 +221,7 @@ class H3_Promptor:
             )
 
             # 7. Deterministic polish
+            import re
             if "subject_definitions:" in cleaned_prompt:
                 cleaned_prompt = re.sub(
                     r"\Aintegrated_multimodal_description:\s*\n", "", cleaned_prompt)
