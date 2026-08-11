@@ -2,15 +2,18 @@ __version__ = "1.1.0"
 
 from .py.h3_promptor import H3_Promptor
 from .py.h3_vision_analyzer import H3_Vision_Analyzer
+from .py.h3_vision_builder import H3_Vision_Builder
 
 NODE_CLASS_MAPPINGS = {
     "H3_Promptor": H3_Promptor,
     "H3_Vision_Analyzer": H3_Vision_Analyzer,
+    "H3_Vision_Builder": H3_Vision_Builder,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "H3_Promptor": "MiniMax H3 Promptor",
     "H3_Vision_Analyzer": "MiniMax H3 Vision Analyzer",
+    "H3_Vision_Builder": "MiniMax H3 Vision Builder",
 }
 WEB_DIRECTORY = "./web"
 
