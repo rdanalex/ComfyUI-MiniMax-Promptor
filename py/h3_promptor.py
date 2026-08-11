@@ -226,8 +226,8 @@ class H3_Promptor:
                 cleaned_prompt = re.sub(
                     r"\Aintegrated_multimodal_description:\s*\n", "", cleaned_prompt)
                 cleaned_prompt = re.sub(
-                    r"(\[Shot \d+\])\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?s\s*[—-]\s*",
-                    r"\1 ", cleaned_prompt)
+                    r"(\[Shot \d+\])\s*\d+(?:\.\d+)?\s*[—–-]\s*\d+(?:\.\d+)?s\s*[—–-]\s*",
+                    r"\1 ", cleaned_prompt)                   
 
             # 8. Truncation safety net
             if "non_diegetic_music:" not in cleaned_prompt:
