@@ -200,11 +200,18 @@ class H3_Promptor:
 
             # 6. Post-process
             task_desc = TaskDetector.get_task_description(detected_type)
-            
+
             # Dynamically compute subject definitions and alignment strings in Python
             subject_defs = self.prompt_builder.generate_subject_definitions(image_count, has_video, parsed_vision_dict=parsed_vision_dict)
             alignment_inst = self.prompt_builder.generate_alignment_instruction(detected_type, duration, image_count)
-            
+
+            # Defer to the LLM when it already emitted these sections,
+            # preventing duplicate subject_definitions / alignment lines
+            if "subject_definitions:" in response.content:
+                subject_defs = ""
+            if "How the reference pictures align" in response.content:
+                alignment_inst = ""
+
             cleaned_prompt = PostProcessor.clean(
                 response.content, 
                 detected_type, 
