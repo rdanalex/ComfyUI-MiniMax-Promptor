@@ -28,7 +28,8 @@ A highly configurable multimodal analysis engine. This node acts as your virtual
 *   **Targeted Custom Overrides**: Use the `custom_prompt_override` box to type rules like `<Picture 2>: Focus entirely on the background`. It will surgically override the global mode for that exact frame!
 *   **Invisible Heavy VRAM Management**: Automatically detects when you are using local models like `Ollama` and safely unloads them behind the scenes to preserve VRAM for the actual H3 video generation.
 *   **Multilingual Output**: Choose between English and Chinese for the analysis output language.
-*   **Outputs**: Produces a structured JSON-backed `vision_context` that is sent to the Promptor node, completely uncoupling image arrays from the final text pipeline.
+*   **Model Agnostic Instruction Profiles**: The node is only an LLM text/VLM analyser, so the instruction set is selectable (`instruction_profile`). Ship with `MiniMax H3` and `LTX 2.5`, add your own in `vision_prompts.json`.
+*   **One Text Output per Reference**: `vision_context` is still output #0, but every reference also gets its own `image_N_text` / `video_N_text` / `audio_N_text` output, plus a dedicated `global_vibe` output for the synthesis of the whole scene.
 
 #### Vision Analyzer Inputs
 | Parameter | Type | Description |
@@ -37,13 +38,27 @@ A highly configurable multimodal analysis engine. This node acts as your virtual
 | `ref_videos` | IMAGE | Connect video tensor sequences; dynamically grows (`video_X`). |
 | `global_image_mode` | COMBO | Selects the global fallback analysis logic from `vision_prompts.json` for all images. |
 | `global_video_mode` | COMBO | Selects the global fallback analysis logic from `vision_prompts.json` for all videos. |
-| `custom_prompt_override`| STRING | A multi-line box to surgically override specific media logic. E.g: `<Picture 2>: focus on the lighting`. |
+| `custom_prompt_override`| STRING | A multi-line box to surgically override specific media logic. E.g: `<Picture 2>: focus on the lighting` or `Global_Vibe: one shared neon-noir world`. |
 | `output_language` | COMBO | Language for the analysis output (`English` or `Chinese`). |
-| `provider` | COMBO | `openai`, `ollama`, `gemini`, or `claude`. |
+| `provider` | COMBO | `openai`, `ollama`, `gemini`, `claude`, `openrouter` or `nvidia`. |
 | `api_key` | STRING | API Key override (leaves `config.json` untouched). |
 | `model_name` | STRING | VLM Model override (e.g. `gpt-4o`, `gemini-2.5-flash`). |
 | `temperature` | FLOAT | Sampling temperature. Default `0.2` for precise factual analysis. |
 | `max_tokens` | INT | Maximum response tokens (256-8192). |
+| `instruction_profile` | COMBO | Which instruction set to use. Ship with `MiniMax H3` and `LTX 2.5`; add your own profiles in `vision_prompts.json`. This is what makes the node usable for **any** target model. |
+| `global_vibe_mode` | COMBO | Instruction for the text-only `Global_Vibe` synthesis of the whole scene (`Profile Default` = first entry of the selected profile). |
+| `global_audio_mode` | COMBO | Instruction used for every audio reference (replaces the previously hard-coded audio prompt). |
+
+#### Vision Analyzer Outputs
+| Output | Type | Description |
+|--------|------|-------------|
+| `vision_context` | STRING | **Output #0, unchanged.** Full JSON context consumed by `H3_Promptor` (also carries `Global_Vibe` and `_media_keys`). |
+| `global_vibe` | STRING | Scene-level `Global_Vibe` synthesized from every reference. |
+| `image_1_text` … `image_9_text` | STRING | Description produced for `<Picture N>`; empty string when that slot is not connected. |
+| `video_1_text` … `video_3_text` | STRING | Description produced for `<Video N>`; empty string when unused. |
+| `audio_1_text` … `audio_3_text` | STRING | Description produced for `<Audio N>`; empty string when unused. |
+
+> The per-slot outputs let you drive **any** other node (e.g. an LTX 2.5 prompt builder) with one exact description per reference, without parsing the JSON yourself.
 
 ### 2. `H3_Promptor` 📝
 The core structure engine. It operates at blazing speeds because it takes the user's description and the Vision Analyzer's text report to format the final H3 Prompt—meaning **it does not need to repeatedly analyze heavy images.**
@@ -140,17 +155,38 @@ Want to learn how to do **Lip-Syncing, Character Interaction, Video Style Transf
 ## 🎨 Modding & Customization
 
 ### The `vision_prompts.json` Ecosystem
-Upon the first boot of V1.0.0, a `vision_prompts.json` file is generated in the root folder. You can open this JSON file to modify or add completely new analysis strategies:
+`vision_prompts.json` holds one entry per **instruction profile**. A profile is a named bundle of instructions for one target format (`MiniMax H3`, `LTX 2.5`, or anything you add):
 
 ```json
 {
-    "image_prompts": {
-        "Subject / Identity": "Focus exclusively on describing the main subject's appearance...",
-        "Color Palette & Texture": "Focus exclusively on the dominating colors..."
+    "profiles": {
+        "MiniMax H3": {
+            "system_prompt": "You are an expert film director and multimedia analyst...",
+            "global_vibe_system_prompt": "You are a senior film director and colourist...",
+            "image_prompts":   { "Subject / Identity": "...", "Comprehensive": "..." },
+            "video_prompts":   { "Motion Focus": "...", "Comprehensive": "..." },
+            "audio_prompts":   { "Comprehensive Audio": "...", "Music & Score": "..." },
+            "global_vibe_prompts": { "Continuity & Shared World": "...", "Mood & Atmosphere": "..." }
+        },
+        "LTX 2.5": { "...": "same shape, LTX flavoured instructions" }
     }
 }
 ```
-Add your own custom keys — changes take effect after a ComfyUI restart.
+
+Rules that matter:
+
+* The **first** key of every section is that profile's `Profile Default`, i.e. what the node uses when the dropdown is set to `Profile Default`.
+* The node dropdowns list the **union** of all profiles, so a mode that is not defined in the active profile is still resolved from the profile that defines it (saved workflows never break).
+* A profile section found in the file **replaces** the built-in section with the same name; sections you leave out keep the built-in defaults. `_readme` is ignored.
+* Old flat preset files (top-level `image_prompts` / `video_prompts`) are still read and are applied to the `MiniMax H3` profile.
+* `system_prompt` = instructions for the per-media analysis calls, `global_vibe_system_prompt` = instructions for the text-only `Global_Vibe` synthesis (keep its JSON contract `{"Global_Vibe": "..."}`).
+
+Changes take effect after a ComfyUI restart.
+
+#### Using the node for LTX 2.5 (or any other model)
+1. Set `instruction_profile` to `LTX 2.5` (or paste your own LTX instructions into a new profile in `vision_prompts.json`).
+2. Pick the per-media instructions with `global_image_mode` / `global_video_mode` / `global_audio_mode`.
+3. Wire `image_1_text`, `image_2_text`, … directly into your LTX prompt node - each output is the plain description of that reference. `vision_context` / `global_vibe` still work if you prefer the combined text.
 
 ### The System Templates
 Want to alter how the backend formats the `[SCENE]` blocks?

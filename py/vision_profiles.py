@@ -1,0 +1,328 @@
+"""
+ComfyUI-Minimax-H3-Promptor
+This integration script follows GPL-3.0 License.
+When using or modifying this code, please respect both the original model licenses
+and this integration's license terms.
+
+Source: https://github.com/1038lab/ComfyUI-Minimax-H3-Promptor
+"""
+
+import json
+from pathlib import Path
+
+from .utils import log_error, log_info
+
+
+PRESETS_FILE = Path(__file__).parent.parent / "vision_prompts.json"
+
+# Name of the profile used when a workflow does not specify one (backward compatible).
+DEFAULT_PROFILE_NAME = "MiniMax H3"
+
+# Special dropdown entry: "use this profile's own default instruction".
+PROFILE_DEFAULT_OPTION = "Profile Default"
+
+# Sections a profile may define. The first key of each section is that profile's default.
+PROFILE_SECTIONS = ("image_prompts", "video_prompts", "audio_prompts", "global_vibe_prompts")
+
+GENERIC_FALLBACKS = {
+    "image_prompts": "Analyze this image in detail and describe everything that is visible.",
+    "video_prompts": "Analyze the motion, camera work and temporal flow of this sequence of keyframes.",
+    "audio_prompts": "Analyze this audio track in detail: rhythm, tempo, sound effects, ambience, vocals and musical style.",
+    "global_vibe_prompts": "Synthesize the shared mood, lighting, colour, atmosphere and pacing of the whole scene.",
+}
+
+
+DEFAULT_PROFILES = {
+    "MiniMax H3": {
+        "system_prompt": (
+            "You are an expert film director and multimedia analyst. "
+            "Analyze the provided visual and audio media precisely according to the user's instructions.\n"
+            "CRITICAL: You MUST output ONLY a valid stringified JSON dictionary mapping the specific media keys "
+            "to their descriptions. "
+            'For example: {"<Picture 1>": "...", "<Picture 2>": "..."}. '
+            "Do NOT output markdown blocks or extra text outside the JSON."
+        ),
+        "global_vibe_system_prompt": (
+            "You are a senior film director and colourist. You are given the individual analyses of several "
+            "references that all belong to ONE single scene. Condense them into a single 'Global_Vibe' statement "
+            "that describes that scene as one coherent whole.\n"
+            "RULES:\n"
+            "- Describe only the SHARED scene level vibe: mood, atmosphere, emotional through-line, lighting "
+            "direction and quality, colour palette / grade, environment and production design language, film "
+            "texture, and pacing / energy.\n"
+            "- NEVER describe a single reference on its own, never copy a single subject's face or wardrobe "
+            "description, never summarise the files one by one, and never mention the media keys "
+            "(<Picture N>, <Video N>, <Audio N>).\n"
+            "- Never invent subjects, props or locations that do not appear in the analyses.\n"
+            "- Write 2-4 flowing sentences that work as the opening mood/style preamble of a video generation "
+            "prompt for the whole scene.\n"
+            'CRITICAL: Output ONLY a valid JSON object of the form {"Global_Vibe": "..."} with no markdown '
+            "fences and no extra text."
+        ),
+        "image_prompts": {
+            "Subject / Identity": "Focus exclusively on describing the main subject's appearance, facial features, and clothing.",
+            "Comprehensive": "Analyze the entire image in extreme detail (subjects, environment, lighting, composition, mood).",
+            "Action / Emotion": "Analyze only the physical actions, body language, posture, and facial expressions of the subject.",
+            "Face & Expression Focus": "Analyze the facial features, gaze, and micro-expressions intimately.",
+            "Prop & Object Interaction": "Focus purely on what objects the subject is holding or interacting with, and how they interact.",
+            "Lighting & Camera": "Describe only the camera angle/framing (e.g., close-up, wide shot) and the ambient lighting setup.",
+            "Cinematic Composition": "Analyze framing techniques, depth of field, foreground/background separation, and lens characteristics (wide, telephoto, macro).",
+            "Style & Aesthetics": "Focus solely on the artistic style, color palette, texture, and overall mood.",
+            "Color Palette & Texture": "Focus exclusively on the dominating colors, contrast ratios, and visual textures present.",
+        },
+        "video_prompts": {
+            "Motion Focus": "Focus strictly on the choreography, speed, and physical movement executed by the subject.",
+            "Comprehensive": "Analyze the sequential pacing, camera movement, and subject motion across all provided keyframes.",
+            "Camera Tracking": "Focus entirely on tracking how the virtual camera moves (panning, zooming, dollying, tracking).",
+            "Temporal Flow": "Analyze the overall pacing, transitions, and scene progression across the extracted frames.",
+            "Physics & Momentum": "Analyze the realistic physics, gravity, weight, and momentum of the moving subjects/objects.",
+            "Background Dynamics": "Focus exclusively on what is moving in the environment or background, ignoring the main subject.",
+        },
+        "audio_prompts": {
+            "Comprehensive Audio": "Analyze this audio track in detail: describe its rhythm, tempo, sound effects, environmental ambience, dialogue/vocal tone, or musical style.",
+            "Music & Score": "Focus exclusively on the music: instrumentation, genre, tempo/BPM feel, key and harmonic mood, energy arc, and how the track evolves over time.",
+            "Dialogue & Vocals": "Focus on all speech and singing: speaker identity and tone, language, delivery, emotional register, timing, and intelligibility.",
+            "Ambience & SFX": "Focus on everything that is not music: room tone, environmental ambience, footsteps, impacts, weather, spatial depth, and off-screen sounds.",
+        },
+        "global_vibe_prompts": {
+            "Continuity & Shared World": "Synthesize the single shared world, look and mood that unites ALL of the references above: one continuous scene, one lighting logic, one colour language, one emotional atmosphere and one pacing. It must read as a description of the whole scene, never of one single reference.",
+            "Mood & Atmosphere": "Synthesize only the emotional mood and atmosphere shared by the whole scene: dominant feeling, tension or calm, warmth or coldness, intimacy or scale, and the sensory air of the place.",
+            "Lighting & Colour Grade": "Synthesize only the lighting design and colour grade that must stay identical across the whole scene: key light direction and quality, contrast ratio, colour palette, colour temperature, and film texture.",
+            "Pacing & Energy": "Synthesize only the pacing and energy of the whole scene: overall tempo, rhythm of movement, stillness versus momentum, and how the energy should build or relax across the full duration.",
+            "Style Reference Lock": "Synthesize one compact style reference lock for the whole scene: cinematography reference, lens and format character, grade, texture and period feel - identical for every shot.",
+        },
+    },
+    "LTX 2.5": {
+        "system_prompt": (
+            "You are an expert cinematographer and visual analyst writing reference notes for the LTX 2.5 video "
+            "generation model. Analyze the provided media precisely according to the user's instructions.\n"
+            "Write concrete, filmable, present-tense natural language prose: subject and appearance, wardrobe, "
+            "environment and set dressing, action, camera framing / lens / movement, lighting direction and "
+            "quality, colour grade, atmosphere and physical texture.\n"
+            "Describe ONLY what is visible or audible. Never invent details, never stack quality or resolution "
+            "keywords, and never write keyword soup.\n"
+            "CRITICAL: You MUST output ONLY a valid stringified JSON dictionary mapping the specific media keys "
+            "to their descriptions. "
+            'For example: {"<Picture 1>": "...", "<Picture 2>": "..."}. '
+            "The <Picture N> / <Video N> / <Audio N> strings are only labels identifying which reference you are "
+            "describing - never write them inside the description itself.\n"
+            "Do NOT output markdown blocks or extra text outside the JSON."
+        ),
+        "global_vibe_system_prompt": (
+            "You are a senior cinematographer preparing the shared style block of a single LTX 2.5 generation. "
+            "You are given the individual analyses of several references that all belong to ONE scene. Condense "
+            "them into a single 'Global_Vibe' statement that describes that whole scene.\n"
+            "RULES:\n"
+            "- Describe only the shared scene language: style and cinematography reference, colour grade, lighting "
+            "logic and quality, atmosphere and haze, lens / format character, film texture, environment mood, and "
+            "the emotional through-line and pacing.\n"
+            "- NEVER describe a single reference on its own, never copy one subject's face or wardrobe "
+            "description, never list the files one by one, and never mention the media keys "
+            "(<Picture N>, <Video N>, <Audio N>).\n"
+            "- Never invent subjects, props or locations that do not appear in the analyses.\n"
+            "- Write 2-4 flowing sentences of style and atmosphere, ready to open an LTX prompt as its style "
+            "preamble for the complete scene.\n"
+            'CRITICAL: Output ONLY a valid JSON object of the form {"Global_Vibe": "..."} with no markdown '
+            "fences and no extra text."
+        ),
+        "image_prompts": {
+            "LTX Shot Starter": "Describe this image as the opening frame of one continuous LTX 2.5 shot: subject identity and wardrobe, environment and set dressing, pose and action, camera framing and lens, lighting direction and quality, colour grade and film texture. Flowing present-tense prose, no keyword lists.",
+            "Subject & Wardrobe": "Describe only the subject: apparent identity and age range, hair, build, expression, and the exact wardrobe and accessories including materials, fit and colours.",
+            "Environment & Set Dressing": "Describe only the environment: location, architecture, set dressing, props, weather, time of day, and how deep and cluttered the space reads.",
+            "Action & Pose": "Describe only the physical action and body language: pose, gesture, gaze direction, weight distribution and what the subject is interacting with.",
+            "Lighting & Colour Grade": "Describe only the lighting design and colour grade: key and fill direction and quality, contrast, practical sources, volumetric haze, palette, colour temperature and how the light falls on the subject.",
+            "Camera & Lens": "Describe only the camera: framing and shot size, height and angle, lens character and depth of field, and the implied movement (push in, pull out, pan, tilt, tracking).",
+            "Style & Film Texture": "Describe only the cinematic style: cinematography reference, film stock or digital look, grain, halation, contrast curve, aspect ratio feel and overall rendition.",
+        },
+        "video_prompts": {
+            "Continuous Take Motion": "Describe the motion across these keyframes as ONE continuous unbroken LTX 2.5 take: what the subject does, how the camera moves, the speed and amplitude of both, and how the light and environment change over the sequence. Present-tense prose, no cuts unless clearly visible.",
+            "Camera Choreography": "Describe only how the camera moves through the sequence: push in or pull out, pan, tilt, tracking, crane, handheld drift, speed and amplitude, and where the movement ends.",
+            "Subject Motion & Physics": "Describe only the subject's movement: sequence of actions, weight, momentum, friction and realistic physics, plus micro-movements of face, hair and cloth.",
+            "Temporal Flow & Pacing": "Describe only how time behaves across the sequence: pacing, acceleration or deceleration, beats of stillness, and the rhythm of the action.",
+            "Ambient & Background Motion": "Describe only what moves in the environment or background, ignoring the main subject: crowd, traffic, foliage, smoke, water, light flicker and their speed.",
+            "Sound-Matched Motion": "Describe how the visible motion lines up with the audio rhythm: accents, beats and hits, and how the movement should land on them.",
+        },
+        "audio_prompts": {
+            "LTX Audio Companion": "Analyze this audio as the soundtrack bed for one LTX 2.5 generation: overall energy, tempo/BPM feel, instrumentation, vocal presence, mood arc, mix character and ambience. Note where accents, drops and quiet passages fall.",
+            "Beat & Rhythm Map": "Map only the rhythm: tempo/BPM feel, time signature feel, where the beats and accents land, and the energy curve over time.",
+            "Instrumentation & Mix": "Describe only the instrumentation and mix: which instruments, how they are layered, the low end, stereo width, reverb and the overall loudness character.",
+            "Ambience & SFX": "Describe only non-musical sound: room tone, environment, weather, movement sounds, spatial depth and off-screen events.",
+        },
+        "global_vibe_prompts": {
+            "LTX Scene Style Lock": "Condense ALL of the references above into ONE 'Global_Vibe': the single shared visual language for the whole LTX 2.5 scene - cinematography style, colour grade, lighting logic, atmosphere, lens and format character, texture, environment mood and the emotional through-line. It must read as one continuous scene, never as a description of a single image.",
+            "Colour Grade & Lighting": "Describe only the colour grade and lighting logic that must stay identical for the whole scene: palette, colour temperature, contrast, key light behaviour and haze.",
+            "Continuity & Identity Lock": "Describe the continuity rules that must hold for the entire scene: which subjects, wardrobe and locations stay identical, and which details must never drift between generated shots.",
+            "Mood & Atmosphere": "Describe only the emotional mood and atmosphere of the whole scene: feeling, tension, warmth, scale, and the sensory air of the space.",
+            "Pacing & Energy": "Describe only the pacing and energy of the whole scene: tempo, how much the camera and subject should move, and how the energy arcs across the full duration.",
+        },
+    },
+}
+
+
+
+# ---------------------------------------------------------------------------
+# Loading / merging
+# ---------------------------------------------------------------------------
+
+def _normalize_section(section) -> dict:
+    """Keep only a {name: instruction-string} mapping with non-empty values."""
+    if not isinstance(section, dict):
+        return {}
+    return {str(k): str(v) for k, v in section.items() if isinstance(v, str) and v.strip()}
+
+
+def _normalize_profile(raw) -> dict:
+    """Normalize one profile dict so every section/string key exists."""
+    raw = raw if isinstance(raw, dict) else {}
+    profile = {}
+    for section in PROFILE_SECTIONS:
+        profile[section] = _normalize_section(raw.get(section))
+    for key in ("system_prompt", "global_vibe_system_prompt"):
+        value = raw.get(key)
+        profile[key] = value.strip() if isinstance(value, str) and value.strip() else ""
+    return profile
+
+
+def read_presets_file() -> dict:
+    """Read vision_prompts.json, creating it from the built-in defaults if missing."""
+    if not PRESETS_FILE.exists():
+        try:
+            with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "_readme": (
+                            "Instruction profiles for the Vision Analyzer node. Every key inside "
+                            "image_prompts / video_prompts / audio_prompts / global_vibe_prompts becomes a "
+                            "dropdown choice on the node; the FIRST key of a section is that profile's "
+                            "'Profile Default'. Add your own profile (e.g. 'LTX 2.5 (mine)') or overwrite the "
+                            "built-in sections. Restart ComfyUI to reload this file."
+                        ),
+                        "profiles": DEFAULT_PROFILES,
+                    },
+                    f,
+                    indent=4,
+                    ensure_ascii=False,
+                )
+            log_info(f"Created default instruction profiles at {PRESETS_FILE.name}")
+        except Exception as e:
+            log_error(f"Could not write {PRESETS_FILE.name}: {e}")
+        return {}
+    try:
+        with open(PRESETS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        log_error(f"Failed to load {PRESETS_FILE.name}: {e}")
+        return {}
+
+
+def load_profiles() -> dict:
+    """
+    Build the active profile table.
+
+    Built-in profiles are loaded first, then vision_prompts.json is layered on top:
+    * a profile defined in the file overrides that built-in profile section by section,
+    * new profiles defined in the file are added,
+    * a legacy (flat) file with top-level image_prompts / video_prompts overrides the
+      MiniMax H3 profile, so old custom preset files keep working.
+    """
+    profiles = {name: _normalize_profile(prof) for name, prof in DEFAULT_PROFILES.items()}
+    data = read_presets_file()
+
+    file_profiles = data.get("profiles")
+    if isinstance(file_profiles, dict) and file_profiles:
+        for name, raw in file_profiles.items():
+            if not isinstance(raw, dict):
+                continue
+            name = str(name)
+            merged = dict(profiles.get(name, _normalize_profile({})))
+            for section in PROFILE_SECTIONS:
+                section_values = _normalize_section(raw.get(section))
+                if section_values:
+                    merged[section] = section_values
+            for key in ("system_prompt", "global_vibe_system_prompt"):
+                value = raw.get(key)
+                if isinstance(value, str) and value.strip():
+                    merged[key] = value.strip()
+            profiles[name] = merged
+    elif data:
+        # Legacy flat file: treat top-level sections as MiniMax H3 overrides.
+        legacy = _normalize_profile(data)
+        base = dict(profiles.get(DEFAULT_PROFILE_NAME, _normalize_profile({})))
+        for section in PROFILE_SECTIONS:
+            if legacy[section]:
+                base[section] = legacy[section]
+        profiles[DEFAULT_PROFILE_NAME] = base
+
+    if DEFAULT_PROFILE_NAME not in profiles:
+        profiles[DEFAULT_PROFILE_NAME] = _normalize_profile(DEFAULT_PROFILES[DEFAULT_PROFILE_NAME])
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+# Lookups used by the node schema / execution
+# ---------------------------------------------------------------------------
+
+def mode_options(profiles: dict, section: str) -> list:
+    """
+    Dropdown options for one section: 'Profile Default' followed by the deduplicated
+    union of every mode defined for that section across all profiles.
+    """
+    options = [PROFILE_DEFAULT_OPTION]
+    for profile in profiles.values():
+        for name in (profile.get(section) or {}):
+            if name not in options:
+                options.append(name)
+    return options
+
+
+def resolve_prompt(profiles: dict, profile_name: str, section: str, mode: str) -> str:
+    """
+    Resolve one instruction string.
+
+    Resolution order:
+    1. 'Profile Default' (or an empty mode) -> the profile's first instruction for the section,
+    2. the exact mode name inside the selected profile,
+    3. the same mode name inside any other profile (so old workflows keep resolving),
+    4. a generic fallback for that section.
+    """
+    profile = profiles.get(profile_name) or {}
+    section_map = profile.get(section) or {}
+
+    if mode in (None, "", PROFILE_DEFAULT_OPTION):
+        if section_map:
+            return next(iter(section_map.values()))
+        for other in profiles.values():
+            other_section = other.get(section) or {}
+            if other_section:
+                return next(iter(other_section.values()))
+        return GENERIC_FALLBACKS.get(section, "Analyze the provided media in detail.")
+
+    if mode in section_map:
+        return section_map[mode]
+
+    for other in profiles.values():
+        other_section = other.get(section) or {}
+        if mode in other_section:
+            return other_section[mode]
+
+    return GENERIC_FALLBACKS.get(section, "Analyze the provided media in detail.")
+
+
+def get_system_prompt(profiles: dict, profile_name: str) -> str:
+    """System prompt used for the per-media analysis calls."""
+    profile = profiles.get(profile_name) or {}
+    prompt = profile.get("system_prompt") or ""
+    if prompt:
+        return prompt
+    return DEFAULT_PROFILES[DEFAULT_PROFILE_NAME]["system_prompt"]
+
+
+def get_global_vibe_system_prompt(profiles: dict, profile_name: str) -> str:
+    """Dedicated system prompt for the text-only Global_Vibe synthesis call."""
+    profile = profiles.get(profile_name) or {}
+    prompt = profile.get("global_vibe_system_prompt") or ""
+    if prompt:
+        return prompt
+    return DEFAULT_PROFILES[DEFAULT_PROFILE_NAME]["global_vibe_system_prompt"]
+

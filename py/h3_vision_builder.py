@@ -8,7 +8,12 @@ This output is intentionally compatible with `H3_Promptor`'s expected `vision_co
 import json
 from comfy_api.latest import io
 
+from .io_compat import AUTOGROW_TYPE, collect_slots, growing_inputs
 from .utils import log_info, log_error
+
+MAX_REF_IMAGES = 9
+MAX_REF_VIDEOS = 3
+MAX_REF_AUDIOS = 3
 
 
 class H3_Vision_Builder(io.ComfyNode):
@@ -26,18 +31,12 @@ class H3_Vision_Builder(io.ComfyNode):
             display_name="MiniMax H3 Vision Builder",
             category="🧪AILab/🎬 MiniMax H3-Promptor",
             inputs=[
-                io.Autogrow.Input("ref_images", optional=True,
-                                  template=io.Autogrow.TemplatePrefix(
-                                      input=io.String.Input("image_text", multiline=True, tooltip="Manual description for this image (will become <Picture N>)"),
-                                      prefix="image_", min=0, max=9)),
-                io.Autogrow.Input("ref_videos", optional=True,
-                                  template=io.Autogrow.TemplatePrefix(
-                                      input=io.String.Input("video_text", multiline=True, tooltip="Manual description for this video (will become <Video N>)"),
-                                      prefix="video_", min=0, max=3)),
-                io.Autogrow.Input("ref_audios", optional=True,
-                                  template=io.Autogrow.TemplatePrefix(
-                                      input=io.String.Input("audio_text", multiline=True, tooltip="Manual description for this audio (will become <Audio N>)"),
-                                      prefix="audio_", min=0, max=3)),
+                *growing_inputs("ref_images", "text", "image_", 0, MAX_REF_IMAGES, base_id="image_text",
+                                tooltip="Manual description for this image (will become <Picture N>)"),
+                *growing_inputs("ref_videos", "text", "video_", 0, MAX_REF_VIDEOS, base_id="video_text",
+                                tooltip="Manual description for this video (will become <Video N>)"),
+                *growing_inputs("ref_audios", "text", "audio_", 0, MAX_REF_AUDIOS, base_id="audio_text",
+                                tooltip="Manual description for this audio (will become <Audio N>)"),
                 io.String.Input("global_vibe", multiline=True, default="", optional=True, tooltip="Optional synthesized Global_Vibe string."),
             ],
             outputs=[
@@ -48,27 +47,24 @@ class H3_Vision_Builder(io.ComfyNode):
     @classmethod
     def execute(
         cls,
-        ref_images: io.Autogrow.Type = None,
-        ref_videos: io.Autogrow.Type = None,
-        ref_audios: io.Autogrow.Type = None,
+        ref_images: AUTOGROW_TYPE = None,
+        ref_videos: AUTOGROW_TYPE = None,
+        ref_audios: AUTOGROW_TYPE = None,
         global_vibe: str = "",
+        **legacy_media_slots,
     ) -> io.NodeOutput:
         try:
-            def _get_iterable(media_input):
-                if not media_input:
-                    return []
-                if isinstance(media_input, dict):
-                    return media_input.values()
-                if isinstance(media_input, (list, tuple)):
-                    return media_input
-                return [media_input]
+            # Autogrow containers (new builds) or fixed image_N / video_N / audio_N inputs.
+            image_slots = collect_slots(ref_images, legacy_media_slots, "image_", MAX_REF_IMAGES)
+            video_slots = collect_slots(ref_videos, legacy_media_slots, "video_", MAX_REF_VIDEOS)
+            audio_slots = collect_slots(ref_audios, legacy_media_slots, "audio_", MAX_REF_AUDIOS)
 
             final_dict = {}
             media_keys = []
 
             # Images
             img_index = 1
-            for txt in _get_iterable(ref_images):
+            for txt in image_slots:
                 if txt is not None and str(txt).strip() != "":
                     key = f"<Picture {img_index}>"
                     media_keys.append(key)
@@ -77,7 +73,7 @@ class H3_Vision_Builder(io.ComfyNode):
 
             # Videos
             vid_index = 1
-            for txt in _get_iterable(ref_videos):
+            for txt in video_slots:
                 if txt is not None and str(txt).strip() != "":
                     key = f"<Video {vid_index}>"
                     media_keys.append(key)
@@ -86,7 +82,7 @@ class H3_Vision_Builder(io.ComfyNode):
 
             # Audios
             aud_index = 1
-            for txt in _get_iterable(ref_audios):
+            for txt in audio_slots:
                 if txt is not None and str(txt).strip() != "":
                     key = f"<Audio {aud_index}>"
                     media_keys.append(key)

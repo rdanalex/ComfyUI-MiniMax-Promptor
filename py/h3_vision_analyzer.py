@@ -10,63 +10,135 @@ Source: https://github.com/1038lab/ComfyUI-Minimax-H3-Promptor
 """
 
 import json
-import os
-from pathlib import Path
+import re
+from typing import Any
 
 import comfy.model_management as model_management
 from comfy_api.latest import io
 
 from .config_manager import get_config_manager
+from .io_compat import AUTOGROW_TYPE, collect_slots, growing_inputs
 from .utils import log_info, log_error, tensor_to_base64, audio_to_base64, _create_provider
+from .vision_profiles import (
+    DEFAULT_PROFILE_NAME,
+    PROFILE_DEFAULT_OPTION,
+    get_global_vibe_system_prompt,
+    get_system_prompt,
+    load_profiles,
+    mode_options,
+    resolve_prompt,
+)
+
+# All instruction strings live in vision_prompts.json (see py/vision_profiles.py):
+# they are grouped into profiles ("MiniMax H3", "LTX 2.5", ...), so the very same node
+# can drive any target model by simply selecting a different profile.
 
 
-PRESETS_FILE = Path(__file__).parent.parent / "vision_prompts.json"
+# ---------------------------------------------------------------------------
+# Active instruction profiles ("MiniMax H3", "LTX 2.5", ... + user defined)
+# ---------------------------------------------------------------------------
 
-DEFAULT_PRESETS = {
-    "image_prompts": {
-        "Subject / Identity": "Focus exclusively on describing the main subject's appearance, facial features, and clothing.",
-        "Comprehensive": "Analyze the entire image in extreme detail (subjects, environment, lighting, composition, mood).",
-        "Action / Emotion": "Analyze only the physical actions, body language, posture, and facial expressions of the subject.",
-        "Face & Expression Focus": "Analyze the facial features, gaze, and micro-expressions intimately.",
-        "Prop & Object Interaction": "Focus purely on what objects the subject is holding or interacting with, and how they interact.",
-        "Lighting & Camera": "Describe only the camera angle/framing (e.g., close-up, wide shot) and the ambient lighting setup.",
-        "Cinematic Composition": "Analyze framing techniques, depth of field, foreground/background separation, and lens characteristics (wide, telephoto, macro).",
-        "Style & Aesthetics": "Focus solely on the artistic style, color palette, texture, and overall mood.",
-        "Color Palette & Texture": "Focus exclusively on the dominating colors, contrast ratios, and visual textures present."
-    },
-    "video_prompts": {
-        "Motion Focus": "Focus strictly on the choreography, speed, and physical movement executed by the subject.",
-        "Comprehensive": "Analyze the sequential pacing, camera movement, and subject motion across all provided keyframes.",
-        "Camera Tracking": "Focus entirely on tracking how the virtual camera moves (panning, zooming, dollying, tracking).",
-        "Temporal Flow": "Analyze the overall pacing, transitions, and scene progression across the extracted frames.",
-        "Physics & Momentum": "Analyze the realistic physics, gravity, weight, and momentum of the moving subjects/objects.",
-        "Background Dynamics": "Focus exclusively on what is moving in the environment or background, ignoring the main subject."
-    }
-}
+PROFILES = load_profiles()
+PROFILE_NAMES = list(PROFILES.keys())
+IMAGE_MODES = mode_options(PROFILES, "image_prompts")
+VIDEO_MODES = mode_options(PROFILES, "video_prompts")
+AUDIO_MODES = mode_options(PROFILES, "audio_prompts")
+VIBE_MODES = mode_options(PROFILES, "global_vibe_prompts")
 
-def load_vision_presets():
-    """Load vision presets from JSON or create default if missing."""
-    if not PRESETS_FILE.exists():
-        try:
-            with open(PRESETS_FILE, "w", encoding="utf-8") as f:
-                json.dump(DEFAULT_PRESETS, f, indent=4, ensure_ascii=False)
-            return DEFAULT_PRESETS
-        except Exception:
-            return DEFAULT_PRESETS
-    
-    try:
-        with open(PRESETS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        log_error(f"Failed to load vision_prompts.json: {e}")
-        return DEFAULT_PRESETS
+DEFAULT_IMAGE_MODE = "Subject / Identity" if "Subject / Identity" in IMAGE_MODES else PROFILE_DEFAULT_OPTION
+DEFAULT_VIDEO_MODE = "Comprehensive" if "Comprehensive" in VIDEO_MODES else PROFILE_DEFAULT_OPTION
 
-PRESETS = load_vision_presets()
-IMAGE_MODES = list(PRESETS.get("image_prompts", DEFAULT_PRESETS["image_prompts"]).keys())
-VIDEO_MODES = list(PRESETS.get("video_prompts", DEFAULT_PRESETS["video_prompts"]).keys())
+# Media slot limits - keep in sync with growing_inputs() and the per-slot text outputs.
+MAX_REF_IMAGES = 9
+MAX_REF_VIDEOS = 3
+MAX_REF_AUDIOS = 3
 
 
 PROVIDERS = ["openai", "ollama", "gemini", "claude", "openrouter", "nvidia"]
+
+# ---------------------------------------------------------------------------
+# Media slot helpers
+# ---------------------------------------------------------------------------
+
+def _slot_text_outputs() -> list:
+    """The per-slot STRING outputs: one per possible media slot, plus Global_Vibe."""
+    outputs = [
+        io.String.Output("global_vibe", display_name="global_vibe",
+                         tooltip="Synthesized Global_Vibe for the whole scene (empty if not synthesized)."),
+    ]
+    for slot in range(1, MAX_REF_IMAGES + 1):
+        outputs.append(io.String.Output(f"image_{slot}_text", display_name=f"image_{slot}_text",
+                                        tooltip=f"Description produced for <Picture {slot}>."))
+    for slot in range(1, MAX_REF_VIDEOS + 1):
+        outputs.append(io.String.Output(f"video_{slot}_text", display_name=f"video_{slot}_text",
+                                        tooltip=f"Description produced for <Video {slot}>."))
+    for slot in range(1, MAX_REF_AUDIOS + 1):
+        outputs.append(io.String.Output(f"audio_{slot}_text", display_name=f"audio_{slot}_text",
+                                        tooltip=f"Description produced for <Audio {slot}>."))
+    return outputs
+
+
+def _slot_text(final_dict: dict, tag: str, index: int) -> str:
+    """Text stored for one media tag, '' when that slot was not connected."""
+    value = final_dict.get(f"<{tag} {index}>", "")
+    return "" if value is None else str(value)
+
+
+def _parse_vibe_response(response) -> str:
+    """Extract the Global_Vibe text from the synthesizer response."""
+    if not response.success:
+        log_error(f"Global Vibe API error: {response.error}")
+        return f"API Error: {response.error}"
+
+    content = response.content.strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```[a-zA-Z]*\s*", "", content)
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+
+    start, end = content.find("{"), content.rfind("}")
+    if start != -1 and end > start:
+        try:
+            parsed = json.loads(content[start:end + 1])
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            for key in ("Global_Vibe", "global_vibe", "Global Vibe"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            # The model answered with media keys instead of Global_Vibe: join the parts.
+            parts = [str(value).strip() for value in parsed.values() if str(value).strip()]
+            if parts:
+                log_error("Global Vibe: model returned media keys instead of 'Global_Vibe'; joining values.")
+                return " ".join(parts)
+
+    content = content.strip().strip('"').strip()
+    return content if content else "LLM failed to return a Global_Vibe."
+
+
+def _analyzer_output(final_dict: dict, media_keys: list):
+    """Assemble the node output tuple (vision_context, global_vibe, per-slot texts)."""
+    final_dict = dict(final_dict)
+    final_dict["_media_keys"] = media_keys
+    final_output = json.dumps(final_dict, indent=4, ensure_ascii=False)
+
+    # Dump raw to console for inspection (Restored)
+    print(f"\n{'-'*20} RAW ANALYZER OUTPUT {'-'*20}")
+    print(final_output)
+    print(f"{'-'*60}\n")
+
+    values = [final_output, str(final_dict.get("Global_Vibe", "") or "")]
+    for slot in range(1, MAX_REF_IMAGES + 1):
+        values.append(_slot_text(final_dict, "Picture", slot))
+    for slot in range(1, MAX_REF_VIDEOS + 1):
+        values.append(_slot_text(final_dict, "Video", slot))
+    for slot in range(1, MAX_REF_AUDIOS + 1):
+        values.append(_slot_text(final_dict, "Audio", slot))
+    return io.NodeOutput(*values)
+
+
 
 
 class H3_Vision_Analyzer(io.ComfyNode):
@@ -79,39 +151,42 @@ class H3_Vision_Analyzer(io.ComfyNode):
 
     @classmethod
     def define_schema(cls):
+        inputs = [
+            io.Combo.Input("global_image_mode", options=IMAGE_MODES, default=DEFAULT_IMAGE_MODE,
+                           tooltip="Instruction used for every image, taken from the selected instruction_profile."),
+            io.Combo.Input("global_video_mode", options=VIDEO_MODES, default=DEFAULT_VIDEO_MODE,
+                           tooltip="Instruction used for every video sequence, taken from the selected instruction_profile."),
+            io.String.Input("custom_prompt_override", multiline=True, default="", tooltip="Line-by-line override. Example: <Picture 2>: Overwrite prompt here | Global_Vibe: describe the shared world", optional=True),
+        ]
+        inputs += growing_inputs("ref_images", "image", "image_", 0, MAX_REF_IMAGES)
+        inputs += growing_inputs("ref_videos", "video", "video_", 0, MAX_REF_VIDEOS)
+        inputs += growing_inputs("ref_audios", "audio", "audio_", 0, MAX_REF_AUDIOS)
+        inputs += [
+            io.Combo.Input("output_language", options=["English", "Chinese"], default="English", tooltip="Language for the analysis output.", optional=True),
+            io.Combo.Input("provider", options=PROVIDERS, default="openai", tooltip="Vision LLM provider to use for analysis.", optional=True),
+            io.Boolean.Input("dry_run", default=False, tooltip="Sandbox mode: Bypasses live API calls, returning mock descriptions and exact prompt structures without spending tokens.", optional=True),
+            io.String.Input("api_key", default="", tooltip="API key override.", optional=True),
+            io.String.Input("model_name", default="", tooltip="Model override (e.g. gpt-4o, qwen-vl-max).", optional=True),
+            io.Float.Input("temperature", default=0.2, min=0.0, max=1.0, step=0.05, optional=True),
+            io.Int.Input("max_tokens", default=2048, min=256, max=8192, step=256, optional=True),
+
+            # Appended after the original widgets so existing workflows keep their saved values.
+            io.Combo.Input("instruction_profile", options=PROFILE_NAMES, default=DEFAULT_PROFILE_NAME,
+                           tooltip="Which instruction set from vision_prompts.json to use. Use 'LTX 2.5' (or your own profile) for a non-MiniMax target - the node is model agnostic.", optional=True),
+            io.Combo.Input("global_vibe_mode", options=VIBE_MODES, default=PROFILE_DEFAULT_OPTION,
+                           tooltip="Instruction for the text-only Global_Vibe synthesis of the whole scene ('Profile Default' = first entry of the selected profile).", optional=True),
+            io.Combo.Input("global_audio_mode", options=AUDIO_MODES, default=PROFILE_DEFAULT_OPTION,
+                           tooltip="Instruction used for every audio reference ('Profile Default' = first entry of the selected profile).", optional=True),
+        ]
         return io.Schema(
             node_id="H3_Vision_Analyzer",
             display_name="MiniMax H3 Vision Analyzer",
             category="🧪AILab/🎬 MiniMax H3-Promptor",
-            inputs=[
-                io.Combo.Input("global_image_mode", options=IMAGE_MODES, default="Subject / Identity"),
-                io.Combo.Input("global_video_mode", options=VIDEO_MODES, default="Comprehensive"),
-                io.String.Input("custom_prompt_override", multiline=True, default="", tooltip="Line-by-line override. Example: <Picture 2>: Overwrite prompt here", optional=True),
-                
-                io.Autogrow.Input("ref_images", optional=True,
-                                  template=io.Autogrow.TemplatePrefix(
-                                      input=io.Image.Input("image", tooltip="Reference image"),
-                                      prefix="image_", min=0, max=9)),
-                io.Autogrow.Input("ref_videos", optional=True,
-                                  template=io.Autogrow.TemplatePrefix(
-                                      input=getattr(io, "Video", getattr(io, "AnyType", io.Image)).Input("video", tooltip="Reference video"),
-                                      prefix="video_", min=0, max=3)),
-                io.Autogrow.Input("ref_audios", optional=True,
-                                  template=io.Autogrow.TemplatePrefix(
-                                      input=io.Audio.Input("audio", tooltip="Reference audio"),
-                                      prefix="audio_", min=0, max=3)),
-
-                io.Combo.Input("output_language", options=["English", "Chinese"], default="English", tooltip="Language for the analysis output.", optional=True),
-                io.Combo.Input("provider", options=PROVIDERS, default="openai", tooltip="Vision LLM provider to use for analysis.", optional=True),
-                io.Boolean.Input("dry_run", default=False, tooltip="Sandbox mode: Bypasses live API calls, returning mock descriptions and exact prompt structures without spending tokens.", optional=True),
-                io.String.Input("api_key", default="", tooltip="API key override.", optional=True),
-                io.String.Input("model_name", default="", tooltip="Model override (e.g. gpt-4o, qwen-vl-max).", optional=True),
-                io.Float.Input("temperature", default=0.2, min=0.0, max=1.0, step=0.05, optional=True),
-                io.Int.Input("max_tokens", default=2048, min=256, max=8192, step=256, optional=True),
-            ],
+            inputs=inputs,
             outputs=[
-                io.String.Output("vision_context", display_name="vision_context")
-            ],
+                io.String.Output("vision_context", display_name="vision_context",
+                                 tooltip="Full JSON context for the H3_Promptor node (also carries Global_Vibe)."),
+            ] + _slot_text_outputs(),
         )
 
     @classmethod
@@ -127,9 +202,13 @@ class H3_Vision_Analyzer(io.ComfyNode):
         custom_prompt_override: str = "",
         temperature: float = 0.2,
         max_tokens: int = 2048,
-        ref_images: io.Autogrow.Type = None,
-        ref_videos: io.Autogrow.Type = None,
-        ref_audios: io.Autogrow.Type = None,
+        ref_images: AUTOGROW_TYPE = None,
+        ref_videos: AUTOGROW_TYPE = None,
+        ref_audios: AUTOGROW_TYPE = None,
+        instruction_profile: str = DEFAULT_PROFILE_NAME,
+        global_vibe_mode: str = PROFILE_DEFAULT_OPTION,
+        global_audio_mode: str = PROFILE_DEFAULT_OPTION,
+        **legacy_media_slots: Any,
     ) -> io.NodeOutput:
         try:
             # Hardcode unload logic to always trigger for Ollama
@@ -140,10 +219,9 @@ class H3_Vision_Analyzer(io.ComfyNode):
             media_keys = []
             final_dict = {}
 
-            # Helper to fetch active prompt string
-            def get_prompt_str(mode: str, is_video=False):
-                dict_key = "video_prompts" if is_video else "image_prompts"
-                return PRESETS.get(dict_key, {}).get(mode, "Analyze visually.")
+            # Instruction resolution (profile aware, so LTX / custom profiles work too)
+            def get_prompt_str(section: str, mode: str) -> str:
+                return resolve_prompt(PROFILES, instruction_profile, section, mode)
 
             # Generate overrides mapping
             overrides = {}
@@ -151,6 +229,9 @@ class H3_Vision_Analyzer(io.ComfyNode):
                 if ":" in line:
                     k, v = line.split(":", 1)
                     k_norm = k.lower()
+                    if "vibe" in k_norm:
+                        overrides["Global_Vibe"] = v.strip()
+                        continue
                     item_idx = ''.join(filter(str.isdigit, k_norm))
                     if not item_idx: continue
                     idx = int(item_idx)
@@ -176,14 +257,20 @@ class H3_Vision_Analyzer(io.ComfyNode):
             else:
                 lang_instruction = " You MUST write your response in English."
 
-            system_prompt = (
-                "You are an expert film director and multimedia analyst. "
-                "Analyze the provided visual and audio media precisely according to the user's instructions.\n"
-                "CRITICAL: You MUST output ONLY a valid stringified JSON dictionary mapping the specific media keys to their descriptions. "
-                "For example: {\"<Picture 1>\": \"...\", \"<Picture 2>\": \"...\"}. "
-                "Do NOT output markdown blocks or extra text outside the JSON."
-                f"{lang_instruction}"
-            )
+            # Per-media system prompt comes from the selected profile.
+            system_prompt = get_system_prompt(PROFILES, instruction_profile) + lang_instruction
+            # The Global_Vibe synthesis is a pure text task: it gets its own system prompt,
+            # otherwise the model answers in the per-media JSON format and only re-describes
+            # one of the references.
+            vibe_system_prompt = get_global_vibe_system_prompt(PROFILES, instruction_profile) + lang_instruction
+
+            log_info(f"Instruction profile: '{instruction_profile}'")
+
+            # Media values arrive either as an autogrow container (new builds) or as
+            # individual image_N / video_N / audio_N inputs (legacy fallback).
+            ref_images = collect_slots(ref_images, legacy_media_slots, "image_", MAX_REF_IMAGES)
+            ref_videos = collect_slots(ref_videos, legacy_media_slots, "video_", MAX_REF_VIDEOS)
+            ref_audios = collect_slots(ref_audios, legacy_media_slots, "audio_", MAX_REF_AUDIOS)
 
             # Provide safety wrapper around ComfyAPI dict/list types
             def _get_iterable(media_input):
@@ -202,7 +289,7 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     target_key = f"<Picture {img_index}>"
                     media_keys.append(target_key)
                     frames = tensor_to_base64(img, max_frames=1)
-                    active_prompt = overrides.get(target_key, get_prompt_str(global_image_mode))
+                    active_prompt = overrides.get(target_key, get_prompt_str("image_prompts", global_image_mode))
 
                     interleaved_payload = []
                     mega_prompt = f"{target_key}: Please analyze this image based on the instruction -> {active_prompt}"
@@ -255,7 +342,7 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     target_key = f"<Video {vid_index}>"
                     media_keys.append(target_key)
                     frames = tensor_to_base64(vid, max_frames=4)
-                    active_prompt = overrides.get(target_key, get_prompt_str(global_video_mode, is_video=True))
+                    active_prompt = overrides.get(target_key, get_prompt_str("video_prompts", global_video_mode))
                     
                     interleaved_payload = []
                     mega_prompt = f"{target_key}: Please analyze this sequence of {len(frames)} frames based on the instruction -> {active_prompt}"
@@ -306,7 +393,7 @@ class H3_Vision_Analyzer(io.ComfyNode):
                 if aud is not None:
                     target_key = f"<Audio {aud_index}>"
                     media_keys.append(target_key)
-                    aud_prompt = overrides.get(target_key, "Analyze this audio track in detail: describe its rhythm, tempo, sound effects, environmental ambience, dialogue/vocal tone, or musical style.")
+                    aud_prompt = overrides.get(target_key, get_prompt_str("audio_prompts", global_audio_mode))
                     base64_audio = audio_to_base64(aud, container_format="mp3", codec_name="libmp3lame")
                     interleaved_payload = [
                         {"text": f"{target_key}: Please analyze this audio reference -> {aud_prompt}"},
@@ -351,60 +438,46 @@ class H3_Vision_Analyzer(io.ComfyNode):
                     aud_index += 1
 
             if not final_dict:
-                return ("{}", "T2V (No Media)")
+                log_info("Analyzer: no media connected, returning an empty vision_context.")
+                return _analyzer_output({}, media_keys)
 
-            # 3. Global Vibe Instruction (Text Only Summarization)
-            vibe_prompt = overrides.get("Global_Vibe", get_prompt_str(global_image_mode))
-            context_str = json.dumps(final_dict, ensure_ascii=False)
-            vibe_message = f"Based on the following individual media analyses:\n{context_str}\n\nProvide the final 'Global_Vibe' synthesis using this instruction: {vibe_prompt}"
-            
-            log_info(f"Analyzer calling {provider} for Global Vibe synthesis...")
+            # 4. Global Vibe Instruction (text-only synthesis of the WHOLE scene)
+            vibe_prompt = overrides.get("Global_Vibe") or get_prompt_str("global_vibe_prompts", global_vibe_mode)
+            context_str = json.dumps(
+                {k: v for k, v in final_dict.items() if k != "_media_keys"},
+                indent=2,
+                ensure_ascii=False,
+            )
+            vibe_message = (
+                "Below are the individual analyses of every reference that belongs to ONE single scene.\n"
+                f"{context_str}\n\n"
+                "Synthesize the 'Global_Vibe' for the WHOLE scene using this instruction "
+                f"(never describe a single reference on its own): {vibe_prompt}"
+            )
+
+            log_info(f"Analyzer calling {provider} for Global Vibe synthesis ({instruction_profile})...")
             if dry_run:
                 final_dict["Global_Vibe"] = f"[SANDBOX MOCK] Synthesized Global Vibe using instruction: '{vibe_prompt}'"
             else:
                 vibe_res = llm.chat(
-                    system_prompt=system_prompt,
+                    system_prompt=vibe_system_prompt,
                     user_message=vibe_message,
                     base64_images=None,
                     temperature=temperature,
                     max_tokens=max_tokens,
                     model=model_override
                 )
-                
-                if vibe_res.success:
-                    try:
-                        clean_content = vibe_res.content.strip()
-                        if clean_content.startswith("```json"): clean_content = clean_content.replace("```json", "", 1)
-                        if clean_content.endswith("```"): clean_content = clean_content[:-3]
-                        parsed = json.loads(clean_content.strip())
-                        final_dict["Global_Vibe"] = parsed.get("Global_Vibe", "Failed to synthesize.")
-                    except json.JSONDecodeError:
-                        if "Global_Vibe" in vibe_res.content and "}" not in vibe_res.content:
-                            final_dict["Global_Vibe"] = vibe_res.content.replace('"', '').strip()
-                        else:
-                            final_dict["Global_Vibe"] = "LLM failed to return valid JSON for Global_Vibe."
-                else:
-                    final_dict["Global_Vibe"] = f"API Error: {vibe_res.error}"
-                
-            # Embed media keys information to guarantee H3_Promptor can count accurately
-            final_dict["_media_keys"] = media_keys
-            
-            final_output = json.dumps(final_dict, indent=4, ensure_ascii=False)
-            
-            # Dump raw to console for inspection (Restored)
-            print(f"\n{'-'*20} RAW ANALYZER OUTPUT {'-'*20}")
-            print(final_output)
-            print(f"{'-'*60}\n")
-            
+                final_dict["Global_Vibe"] = _parse_vibe_response(vibe_res)
+
             if provider == "ollama":
                 log_info("Re-clearing VRAM after VLM execution to free space for H3...")
                 model_management.soft_empty_cache()
-            
-            return io.NodeOutput(final_output)
+
+            return _analyzer_output(final_dict, media_keys)
 
         except Exception as e:
             log_error(str(e))
-            return io.NodeOutput(f"[Analyzer Exception]: {str(e)}")
+            return _analyzer_output({"Global_Vibe": f"[Analyzer Exception]: {str(e)}"}, [])
 
 
 NODE_CLASS_MAPPINGS = {

@@ -2,6 +2,33 @@
 
 ---
 
+## Release Notes: v1.2.0
+
+### Per-Reference Text Outputs (no more JSON digging)
+- **One output per slot**: `H3_Vision_Analyzer` now exposes a dedicated STRING output per reference: `global_vibe`, `image_1_text` … `image_9_text`, `video_1_text` … `video_3_text`, `audio_1_text` … `audio_3_text`. Slots that are not connected return an empty string.
+- **`vision_context` is untouched and still output #0**, so existing H3 workflows and `H3_Promptor` keep working exactly as before.
+- ComfyUI's v3 schema has no dynamic-output support yet (there is no `io.Autogrow.Output`), so the per-slot ports mirror the existing 9 / 3 / 3 media limits instead of growing on demand.
+
+### Instruction Profiles - the node now works for any target model (LTX 2.5 included)
+- **Model agnostic by design**: all instructions moved into named *profiles* inside `vision_prompts.json` - `MiniMax H3` (the previous presets, unchanged) and `LTX 2.5` (shot / wardrobe / environment / camera / grade / atmosphere oriented, flowing present-tense prose, single continuous take).
+- **New `instruction_profile` dropdown** selects the profile; add your own profiles to the JSON and they appear after a restart. `Profile Default` resolves to the first instruction of the selected profile.
+- **New `global_audio_mode`** replaces the previously hard-coded audio instruction and brings real audio presets (`Music & Score`, `Dialogue & Vocals`, `Ambience & SFX`, …).
+- `global_image_mode` / `global_video_mode` / `global_vibe_mode` now list the union of every profile's presets, and a preset missing from the active profile still resolves from the profile that defines it, so saved workflows never break.
+- Old flat `vision_prompts.json` files (top-level `image_prompts` / `video_prompts`) are still read and merged into the `MiniMax H3` profile.
+
+### `Global_Vibe` is now a real scene-level synthesis (bug fix)
+- **Root cause**: the synthesis call reused the *image* preset (`global_image_mode`, default `Subject / Identity`) **and** the per-media JSON system prompt (`{"<Picture 1>": ...}`), so the model simply re-described the first reference.
+- **Fix**: `Global_Vibe` now has its own presets (`global_vibe_prompts`), its own dropdown (`global_vibe_mode`), its own per-profile system prompt (`global_vibe_system_prompt`) and a text-only user prompt that explicitly forbids describing a single reference. It is emitted inside `vision_context` **and** on the dedicated `global_vibe` output.
+- Force it from the node with one line: `Global_Vibe: one shared neon-noir world, wet asphalt, volumetric haze`.
+- **Robust parsing**: fenced JSON, plain prose, `global_vibe` / `Global Vibe` key variants, and "the model answered with media keys" are all handled.
+
+### Cross-Version Compatibility Fix
+- `io.Autogrow` only exists on newer ComfyUI builds; on older ones the whole pack failed to import (`module 'comfy_api.latest._io' has no attribute 'Autogrow'`) and none of the three nodes appeared.
+- New `py/io_compat.py` uses `io.Autogrow` when available and otherwise falls back to optional single-slot inputs (`image_1…9`, `video_1…3`, `audio_1…3`, and `image_1…9` text boxes on the Builder). Both the Analyzer and the Builder now load on old and new builds.
+- `py/vision_profiles.py` keeps the instruction sets, with built-in defaults used when `vision_prompts.json` is missing or corrupt.
+
+---
+
 ## Release Notes: v1.1.0
 
 ### Infinite Dynamic Sockets (ComfyAPI v3 Autogrow)
