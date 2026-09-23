@@ -5,9 +5,9 @@
 ## Release Notes: v1.2.0
 
 ### Per-Reference Text Outputs (no more JSON digging)
-- **One output per slot**: `H3_Vision_Analyzer` now exposes a dedicated STRING output per reference: `global_vibe`, `image_1_text` … `image_9_text`, `video_1_text` … `video_3_text`, `audio_1_text` … `audio_3_text`. Slots that are not connected return an empty string.
+- **One output per slot**: `H3_Vision_Analyzer` now exposes a dedicated STRING output per reference: `global_vibe`, `image_0_text` … `image_2_text`, `video_0_text`, `audio_0_text` (names mirror the input sockets: `image_0` → `image_0_text`). Slots that are not connected return an empty string.
 - **`vision_context` is untouched and still output #0**, so existing H3 workflows and `H3_Promptor` keep working exactly as before.
-- ComfyUI's v3 schema has no dynamic-output support yet (there is no `io.Autogrow.Output`), so the per-slot ports mirror the existing 9 / 3 / 3 media limits instead of growing on demand.
+- ComfyUI's v3 schema has no dynamic-output support (there is no `io.Autogrow.Output`), so the per-slot ports are a small fixed set matching the 3 / 1 / 1 media limits (3 images + 1 video + 1 audio) instead of growing on demand.
 
 ### Instruction Profiles - the node now works for any target model (LTX 2.5 included)
 - **Model agnostic by design**: all instructions moved into named *profiles* inside `vision_prompts.json` - `MiniMax H3` (the previous presets, unchanged) and `LTX 2.5` (shot / wardrobe / environment / camera / grade / atmosphere oriented, flowing present-tense prose, single continuous take).

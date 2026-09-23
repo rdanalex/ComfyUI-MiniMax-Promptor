@@ -37,7 +37,7 @@ def growing_inputs(group_id: str, media_kind: str, prefix: str, min_slots: int =
     Inputs for one growable media group.
 
     New builds: a single ``io.Autogrow`` group input (``group_id``) that grows on demand.
-    Old builds: ``max_slots`` optional single-slot inputs named ``{prefix}1..N``.
+    Old builds: ``max_slots`` optional single-slot inputs named ``{prefix}0..{max-1}``.
     """
     if HAS_AUTOGROW:
         return [io.Autogrow.Input(
@@ -49,7 +49,9 @@ def growing_inputs(group_id: str, media_kind: str, prefix: str, min_slots: int =
         )]
 
     slots = []
-    for slot in range(1, max_slots + 1):
+    # 0-based slot ids so the legacy fallback matches the autogrow socket names
+    # (image_0 ... image_{max-1}) and the node's image_N_text outputs.
+    for slot in range(max_slots):
         slot_input = template_input(media_kind, base_id, tooltip)
         slot_input.id = f"{prefix}{slot}"
         slot_input.optional = True
@@ -62,7 +64,7 @@ def collect_slots(group_value, legacy_slots: dict, prefix: str, max_slots: int) 
     Normalize whatever the frontend delivered into a plain ordered list of values.
 
     Handles both an autogrow container (dict/list on new builds) and the fixed
-    ``{prefix}1..N`` inputs of the legacy fallback.
+    ``{prefix}0..{max-1}`` inputs of the legacy fallback.
     """
     if group_value:
         if isinstance(group_value, dict):
@@ -72,7 +74,7 @@ def collect_slots(group_value, legacy_slots: dict, prefix: str, max_slots: int) 
         return [group_value]
 
     collected = []
-    for slot in range(1, max_slots + 1):
+    for slot in range(max_slots):
         value = legacy_slots.get(f"{prefix}{slot}")
         if value is not None:
             collected.append(value)

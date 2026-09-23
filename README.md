@@ -29,13 +29,14 @@ A highly configurable multimodal analysis engine. This node acts as your virtual
 *   **Invisible Heavy VRAM Management**: Automatically detects when you are using local models like `Ollama` and safely unloads them behind the scenes to preserve VRAM for the actual H3 video generation.
 *   **Multilingual Output**: Choose between English and Chinese for the analysis output language.
 *   **Model Agnostic Instruction Profiles**: The node is only an LLM text/VLM analyser, so the instruction set is selectable (`instruction_profile`). Ship with `MiniMax H3` and `LTX 2.5`, add your own in `vision_prompts.json`.
-*   **One Text Output per Reference**: `vision_context` is still output #0, but every reference also gets its own `image_N_text` / `video_N_text` / `audio_N_text` output, plus a dedicated `global_vibe` output for the synthesis of the whole scene.
+*   **One Text Output per Reference**: `vision_context` is still output #0, but every input slot also gets its own `image_0_text` / `video_0_text` / `audio_0_text` output (names mirror the input sockets: `image_0` → `image_0_text`), plus a dedicated `global_vibe` output for the synthesis of the whole scene. Unconnected slots emit an empty string — dynamic per-connection outputs are not possible in ComfyUI's API, so the 5 fixed slots (3 images + 1 video + 1 audio) are the limit.
 
 #### Vision Analyzer Inputs
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `ref_images` | IMAGE | Connect one or multiple images; dynamically grows infinitely (`image_X`). |
-| `ref_videos` | IMAGE | Connect video tensor sequences; dynamically grows (`video_X`). |
+| `ref_images` | IMAGE | Connect up to 3 images; on old ComfyUI builds the sockets are fixed (`image_0` … `image_2`). |
+| `ref_videos` | VIDEO | Connect 1 video tensor sequence (`video_0`). |
+| `ref_audios` | AUDIO | Connect 1 audio reference (`audio_0`). |
 | `global_image_mode` | COMBO | Selects the global fallback analysis logic from `vision_prompts.json` for all images. |
 | `global_video_mode` | COMBO | Selects the global fallback analysis logic from `vision_prompts.json` for all videos. |
 | `custom_prompt_override`| STRING | A multi-line box to surgically override specific media logic. E.g: `<Picture 2>: focus on the lighting` or `Global_Vibe: one shared neon-noir world`. |
@@ -54,9 +55,9 @@ A highly configurable multimodal analysis engine. This node acts as your virtual
 |--------|------|-------------|
 | `vision_context` | STRING | **Output #0, unchanged.** Full JSON context consumed by `H3_Promptor` (also carries `Global_Vibe` and `_media_keys`). |
 | `global_vibe` | STRING | Scene-level `Global_Vibe` synthesized from every reference. |
-| `image_1_text` … `image_9_text` | STRING | Description produced for `<Picture N>`; empty string when that slot is not connected. |
-| `video_1_text` … `video_3_text` | STRING | Description produced for `<Video N>`; empty string when unused. |
-| `audio_1_text` … `audio_3_text` | STRING | Description produced for `<Audio N>`; empty string when unused. |
+| `image_0_text` … `image_2_text` | STRING | Description produced for `<Picture 1>` … `<Picture 3>`; empty string when that slot is not connected. |
+| `video_0_text` | STRING | Description produced for `<Video 1>`; empty string when unused. |
+| `audio_0_text` | STRING | Description produced for `<Audio 1>`; empty string when unused. |
 
 > The per-slot outputs let you drive **any** other node (e.g. an LTX 2.5 prompt builder) with one exact description per reference, without parsing the JSON yourself.
 
@@ -186,7 +187,7 @@ Changes take effect after a ComfyUI restart.
 #### Using the node for LTX 2.5 (or any other model)
 1. Set `instruction_profile` to `LTX 2.5` (or paste your own LTX instructions into a new profile in `vision_prompts.json`).
 2. Pick the per-media instructions with `global_image_mode` / `global_video_mode` / `global_audio_mode`.
-3. Wire `image_1_text`, `image_2_text`, … directly into your LTX prompt node - each output is the plain description of that reference. `vision_context` / `global_vibe` still work if you prefer the combined text.
+3. Wire `image_0_text`, `image_1_text`, … directly into your LTX prompt node - each output is the plain description of that reference. `vision_context` / `global_vibe` still work if you prefer the combined text.
 
 ### The System Templates
 Want to alter how the backend formats the `[SCENE]` blocks?

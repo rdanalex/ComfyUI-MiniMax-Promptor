@@ -11,9 +11,9 @@ from comfy_api.latest import io
 from .io_compat import AUTOGROW_TYPE, collect_slots, growing_inputs
 from .utils import log_info, log_error
 
-MAX_REF_IMAGES = 9
-MAX_REF_VIDEOS = 3
-MAX_REF_AUDIOS = 3
+MAX_REF_IMAGES = 3
+MAX_REF_VIDEOS = 1
+MAX_REF_AUDIOS = 1
 
 
 class H3_Vision_Builder(io.ComfyNode):

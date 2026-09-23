@@ -48,10 +48,13 @@ VIBE_MODES = mode_options(PROFILES, "global_vibe_prompts")
 DEFAULT_IMAGE_MODE = "Subject / Identity" if "Subject / Identity" in IMAGE_MODES else PROFILE_DEFAULT_OPTION
 DEFAULT_VIDEO_MODE = "Comprehensive" if "Comprehensive" in VIDEO_MODES else PROFILE_DEFAULT_OPTION
 
-# Media slot limits - keep in sync with growing_inputs() and the per-slot text outputs.
-MAX_REF_IMAGES = 9
-MAX_REF_VIDEOS = 3
-MAX_REF_AUDIOS = 3
+# Media slot limits — keep in sync with growing_inputs(), the per-slot text
+# outputs, and H3_Vision_Builder. Small on purpose: 3 images + 1 video +
+# 1 audio = 5 inputs -> 1:1 onto input sockets image_0/1/2, video_0, audio_0
+# and text outputs image_0_text ... audio_0_text.
+MAX_REF_IMAGES = 3
+MAX_REF_VIDEOS = 1
+MAX_REF_AUDIOS = 1
 
 
 PROVIDERS = ["openai", "ollama", "gemini", "claude", "openrouter", "nvidia"]
@@ -61,20 +64,26 @@ PROVIDERS = ["openai", "ollama", "gemini", "claude", "openrouter", "nvidia"]
 # ---------------------------------------------------------------------------
 
 def _slot_text_outputs() -> list:
-    """The per-slot STRING outputs: one per possible media slot, plus Global_Vibe."""
+    """The per-slot STRING outputs: one per input slot, plus Global_Vibe.
+
+    Output names mirror the input socket names (image_0 -> image_0_text) so
+    the mapping is obvious in the UI. ComfyUI's v3 schema has no dynamic
+    outputs, so unused slots simply emit '' — the ports are fixed:
+    3 images / 1 video / 1 audio (7 outputs total).
+    """
     outputs = [
         io.String.Output("global_vibe", display_name="global_vibe",
                          tooltip="Synthesized Global_Vibe for the whole scene (empty if not synthesized)."),
     ]
-    for slot in range(1, MAX_REF_IMAGES + 1):
+    for slot in range(MAX_REF_IMAGES):
         outputs.append(io.String.Output(f"image_{slot}_text", display_name=f"image_{slot}_text",
-                                        tooltip=f"Description produced for <Picture {slot}>."))
-    for slot in range(1, MAX_REF_VIDEOS + 1):
+                                        tooltip=f"Description of input image_{slot} (<Picture {slot + 1}>); '' when not connected."))
+    for slot in range(MAX_REF_VIDEOS):
         outputs.append(io.String.Output(f"video_{slot}_text", display_name=f"video_{slot}_text",
-                                        tooltip=f"Description produced for <Video {slot}>."))
-    for slot in range(1, MAX_REF_AUDIOS + 1):
+                                        tooltip=f"Description of input video_{slot} (<Video {slot + 1}>); '' when not connected."))
+    for slot in range(MAX_REF_AUDIOS):
         outputs.append(io.String.Output(f"audio_{slot}_text", display_name=f"audio_{slot}_text",
-                                        tooltip=f"Description produced for <Audio {slot}>."))
+                                        tooltip=f"Description of input audio_{slot} (<Audio {slot + 1}>); '' when not connected."))
     return outputs
 
 
@@ -130,12 +139,13 @@ def _analyzer_output(final_dict: dict, media_keys: list):
     print(f"{'-'*60}\n")
 
     values = [final_output, str(final_dict.get("Global_Vibe", "") or "")]
-    for slot in range(1, MAX_REF_IMAGES + 1):
-        values.append(_slot_text(final_dict, "Picture", slot))
-    for slot in range(1, MAX_REF_VIDEOS + 1):
-        values.append(_slot_text(final_dict, "Video", slot))
-    for slot in range(1, MAX_REF_AUDIOS + 1):
-        values.append(_slot_text(final_dict, "Audio", slot))
+    # Output image_N_text is 0-based like the input socket, LLM keys are 1-based.
+    for slot in range(MAX_REF_IMAGES):
+        values.append(_slot_text(final_dict, "Picture", slot + 1))
+    for slot in range(MAX_REF_VIDEOS):
+        values.append(_slot_text(final_dict, "Video", slot + 1))
+    for slot in range(MAX_REF_AUDIOS):
+        values.append(_slot_text(final_dict, "Audio", slot + 1))
     return io.NodeOutput(*values)
 
 
