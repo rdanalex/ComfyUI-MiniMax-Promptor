@@ -1,0 +1,12 @@
+## Task Type: Omni Reference (Ref2VA)
+
+This is an OMNI REFERENCE generation task for LTX-2.5 with multiple reference images.
+
+Your job is to narrate a continuous scene that incorporates the visual elements from all reference images as the action unfolds over time.
+
+Write a single, flowing, present-tense paragraph describing:
+- How the scene progresses through the visual elements from each reference
+- Continuous action, camera movement, and temporal flow
+- How subjects and environments from different references connect
+
+Reference the images naturally in the narrative. Do NOT use shot labels, timestamps, or structured sections. Maintain visual continuity throughout.

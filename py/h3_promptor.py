@@ -40,7 +40,11 @@ class H3_Promptor:
                 }),
                 "duration": ("FLOAT", {
                     "default": 5, "min": 2, "max": 15, "step": 0.5,
-                    "tooltip": "Vaild duration for Minimax H3 is 2-15 seconds.",
+                    "tooltip": "Valid duration for Minimax H3 is 2-15 seconds. For LTX 2.5, 2-30 seconds.",
+                }),
+                "target_model": (["MiniMax H3", "LTX 2.5"], {
+                    "default": "MiniMax H3",
+                    "tooltip": "Target video generation model. MiniMax H3 uses structured format; LTX 2.5 uses natural language prose."
                 }),
             },
             "optional": {
@@ -64,7 +68,7 @@ class H3_Promptor:
                 }),
                 "output_language": (["English", "Chinese"], {
                     "default": "English",
-                    "tooltip": "The language the Minimax H3 system will receive the prompt in."
+                    "tooltip": "The language the prompt will be generated in."
                 }),
                 "provider": (PROVIDERS, {
                     "default": "openai",
@@ -97,6 +101,7 @@ class H3_Promptor:
         task_type: str,
         description: str,
         duration: float,
+        target_model: str,
         vision_context: str = "",
         reference_images: str = "Auto",
         reference_videos: str = "Auto",
@@ -108,7 +113,7 @@ class H3_Promptor:
         temperature: float = 0.2,
         max_tokens: int = 4096,
     ):
-        """Generate a MiniMax H3 structured prompt."""
+        """Generate a MiniMax H3 or LTX 2.5 structured prompt."""
         try:
             # Parse intelligent Auto media signature if present
             # Convert UI string values back to integers, treating "Auto" as 0 internally for fallback
@@ -159,11 +164,11 @@ class H3_Promptor:
             log_info(f"Task type: {TaskDetector.get_task_description(detected_type)}")
 
             # 4. Generate system and user prompts
-            system_prompt = self.prompt_builder.build_system_prompt(detected_type, duration=duration)
+            system_prompt = self.prompt_builder.build_system_prompt(detected_type, duration=duration, target_model=target_model)
             
             user_message = self.prompt_builder.build_user_message(
                 description, duration, detected_type, vision_context=vision_context, output_language=output_language,
-                image_count=image_count, has_video=has_video
+                image_count=image_count, has_video=has_video, target_model=target_model
             )
 
             # 4. Get LLM provider
@@ -206,6 +211,11 @@ class H3_Promptor:
             alignment_inst = (self.prompt_builder.generate_alignment_instruction(
                 detected_type, duration, image_count) if image_count > 0 else "")
 
+            # For LTX 2.5, we don't need subject_definitions or alignment_instructions
+            if target_model == "LTX 2.5":
+                subject_defs = ""
+                alignment_inst = ""
+
             # Defer to the LLM when it already emitted these sections,
             # preventing duplicate subject_definitions / alignment lines
             if "subject_definitions:" in response.content:
@@ -218,47 +228,49 @@ class H3_Promptor:
                 detected_type, 
                 full_task_desc=task_desc,
                 subject_defs=subject_defs,
-                alignment_inst=alignment_inst
+                alignment_inst=alignment_inst,
+                target_model=target_model
             )
 
-            # 7. Deterministic polish
-            import re
-            if "subject_definitions:" in cleaned_prompt:
-                cleaned_prompt = re.sub(
-                    r"\Aintegrated_multimodal_description:\s*\n", "", cleaned_prompt)
-                cleaned_prompt = re.sub(
-                    r"(\[Shot \d+\])\s*\d+(?:\.\d+)?\s*[—–-]\s*\d+(?:\.\d+)?s\s*[—–-]\s*",
-                    r"\1 ", cleaned_prompt)                   
+            # 7. Deterministic polish (only for MiniMax H3)
+            if target_model == "MiniMax H3":
+                import re
+                if "subject_definitions:" in cleaned_prompt:
+                    cleaned_prompt = re.sub(
+                        r"\Aintegrated_multimodal_description:\s*\n", "", cleaned_prompt)
+                    cleaned_prompt = re.sub(
+                        r"(\[Shot \d+\])\s*\d+(?:\.\d+)?\s*[—–-]\s*\d+(?:\.\d+)?s\s*[—–-]\s*",
+                        r"\1 ", cleaned_prompt)                   
 
-            # 8. Truncation safety net
-            if "non_diegetic_music:" not in cleaned_prompt:
-                cleaned_prompt += ("\n\nnon_diegetic_music: The complete final "
-                                   "audio track is <Audio 1>. No additional "
-                                   "audio is synthesized.")
+                # 8. Truncation safety net
+                if "non_diegetic_music:" not in cleaned_prompt:
+                    cleaned_prompt += ("\n\nnon_diegetic_music: The complete final "
+                                       "audio track is <Audio 1>. No additional "
+                                       "audio is synthesized.")
 
-            # 9. Six-section backstop (Branch-2 runs only)
-            if ("summary:" not in cleaned_prompt
-                    and "subject_definitions:" in cleaned_prompt
-                    and "detailed_description:" in cleaned_prompt):
-                cleaned_prompt = cleaned_prompt.replace(
-                    "detailed_description:",
-                    "summary: reference generation + audio reuse\n\n"
-                    "retention_analysis:\n"
-                    "<Picture 1>/<Picture 2>: fully_preserved\n"
-                    "<Audio 1>: fully_copy\n\n"
-                    "detailed_description:", 1)
-            # 10. Normalize alignment line to the very top
-            am = re.search(r"(How the reference pictures align[^\n]*)\n", cleaned_prompt)
-            if am and not cleaned_prompt.startswith("How the reference pictures align"):
-                line = am.group(1)
-                cleaned_prompt = cleaned_prompt.replace(line + "\n", "", 1)
-                cleaned_prompt = line + "\n\n" + cleaned_prompt
+                # 9. Six-section backstop (Branch-2 runs only)
+                if ("summary:" not in cleaned_prompt
+                        and "subject_definitions:" in cleaned_prompt
+                        and "detailed_description:" in cleaned_prompt):
+                    cleaned_prompt = cleaned_prompt.replace(
+                        "detailed_description:",
+                        "summary: reference generation + audio reuse\n\n"
+                        "retention_analysis:\n"
+                        "<Picture 1>/<Picture 2>: fully_preserved\n"
+                        "<Audio 1>: fully_copy\n\n"
+                        "detailed_description:", 1)
+                # 10. Normalize alignment line to the very top
+                am = re.search(r"(How the reference pictures align[^\n]*)\n", cleaned_prompt)
+                if am and not cleaned_prompt.startswith("How the reference pictures align"):
+                    line = am.group(1)
+                    cleaned_prompt = cleaned_prompt.replace(line + "\n", "", 1)
+                    cleaned_prompt = line + "\n\n" + cleaned_prompt
 
-            # 11. Enforce fully_copy citation in the music section
-            if ("non_diegetic_music:" in cleaned_prompt
-                    and "No additional audio is synthesized" not in cleaned_prompt):
-                cleaned_prompt += (" The complete final audio track is <Audio 1>. "
-                                   "No additional audio is synthesized.")
+                # 11. Enforce fully_copy citation in the music section
+                if ("non_diegetic_music:" in cleaned_prompt
+                        and "No additional audio is synthesized" not in cleaned_prompt):
+                    cleaned_prompt += (" The complete final audio track is <Audio 1>. "
+                                       "No additional audio is synthesized.")
 
             log_info(
                 f"Prompt generated: {len(cleaned_prompt)} chars | "

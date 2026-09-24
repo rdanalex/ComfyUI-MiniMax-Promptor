@@ -1,0 +1,13 @@
+## Task Type: First/Last Frame (FL2VA)
+
+This is a FIRST/LAST FRAME generation task for LTX-2.5. The reference images are the exact starting frame (<Picture 1>) and exact ending frame (<Picture 2>).
+
+Your sole job is to narrate the single continuous, causal motion that connects the start state to the end state across the designated video duration.
+
+Write a single, flowing, present-tense paragraph describing:
+- The fluid, logical physical movement bridging these two states
+- How the subject transitions from the start pose to the end pose
+- Continuous camera movement (prefer a single long take)
+- Temporal progression and pacing
+
+Describe the MOVEMENT sequence over time, not the pictures themselves. Do NOT use shot labels, timestamps, or structured sections.

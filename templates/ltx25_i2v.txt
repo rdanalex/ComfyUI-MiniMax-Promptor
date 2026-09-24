@@ -1,0 +1,13 @@
+## Task Type: Image-to-Video (I2V)
+
+This is an IMAGE-TO-VIDEO generation task for LTX-2.5. The reference image (<Picture 1>) is the starting frame and core subject reference.
+
+Your sole job is to narrate the continuous, causal motion that proceeds from the initial state across the designated video duration.
+
+Write a single, flowing, present-tense paragraph describing:
+- How the subject moves from the pose in the reference image
+- Camera movement and framing changes
+- Temporal progression and pacing
+- Environmental changes
+
+Reference the image naturally in the narrative (e.g., "matching the pose in the reference image..."). Do NOT use shot labels, timestamps, or structured sections.

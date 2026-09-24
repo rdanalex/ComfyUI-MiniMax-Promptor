@@ -13,6 +13,7 @@ H3_MAX_CHARS = 7000
 SOUND_PREFIXES = ("audio:", "sound:", "soundscape:", "sfx:")
 MUSIC_PREFIXES = ("music:", "score:", "soundtrack:")
 
+
 class PostProcessor:
     """Clean, validate, and assemble the final MiniMax H3 Prompt string."""
 
@@ -70,16 +71,37 @@ class PostProcessor:
         creative_text: str,
         task_type: str,
         subject_definitions: str = "",
-        alignment_instructions: str = ""
+        alignment_instructions: str = "",
+        target_model: str = "MiniMax H3",
     ) -> str:
         """
-        Assemble the final official MiniMax prompt payload utilizing programmatically built sections.
+        Assemble the final official prompt payload.
+        For MiniMax H3: uses the structured 6-part format.
+        For LTX 2.5: outputs clean natural language prose.
         """
         # 1. Clean LLM artifacts
         prompt_text = sanitize_llm_output(creative_text)
         prompt_text = re.sub(r"^```[\w]*\s*\n", "", prompt_text)
         prompt_text = re.sub(r"\n```$", "", prompt_text)
         
+        # For LTX 2.5, return cleaned text directly (simple natural language)
+        if target_model == "LTX 2.5":
+            # Remove any MiniMax-specific markers that might have leaked through
+            prompt_text = re.sub(r"subject_definitions:.*?\n", "", prompt_text, flags=re.IGNORECASE | re.DOTALL)
+            prompt_text = re.sub(r"summary:.*?\n", "", prompt_text, flags=re.IGNORECASE | re.DOTALL)
+            prompt_text = re.sub(r"retention_analysis:.*?\n", "", prompt_text, flags=re.IGNORECASE | re.DOTALL)
+            prompt_text = re.sub(r"detailed_description:.*?\n", "", prompt_text, flags=re.IGNORECASE | re.DOTALL)
+            prompt_text = re.sub(r"overall_soundscape:.*?\n", "", prompt_text, flags=re.IGNORECASE | re.DOTALL)
+            prompt_text = re.sub(r"non_diegetic_music:.*?\n", "", prompt_text, flags=re.IGNORECASE | re.DOTALL)
+            prompt_text = re.sub(r"\[Shot \d+\]\s*", "", prompt_text, flags=re.IGNORECASE)
+            prompt_text = re.sub(r"Audio:.*?\n", "", prompt_text, flags=re.IGNORECASE)
+            prompt_text = re.sub(r"Music:.*?\n", "", prompt_text, flags=re.IGNORECASE)
+            prompt_text = re.sub(r"How the reference pictures align.*?\n", "", prompt_text, flags=re.IGNORECASE)
+            # Clean up extra whitespace
+            prompt_text = re.sub(r"\n{3,}", "\n\n", prompt_text)
+            return prompt_text.strip()
+        
+        # MiniMax H3 format (original logic)
         # 2. Extract sound and music
         body, soundscape, music = PostProcessor.split_audio_music(prompt_text)
 
@@ -115,7 +137,7 @@ class PostProcessor:
 
     @staticmethod
     def clean(raw_output: str, task_type: str = "T2V", full_task_desc: str = "", 
-              subject_defs: str = "", alignment_inst: str = "") -> str:
+              subject_defs: str = "", alignment_inst: str = "", target_model: str = "MiniMax H3") -> str:
         """
         Main entry point for prompt post-processing and compilation.
         """
@@ -123,7 +145,7 @@ class PostProcessor:
             return ""
 
         final_compiled_prompt = PostProcessor.compile_final_prompt(
-            raw_output, task_type, subject_defs, alignment_inst
+            raw_output, task_type, subject_defs, alignment_inst, target_model
         )
 
         if len(final_compiled_prompt) > H3_MAX_CHARS:

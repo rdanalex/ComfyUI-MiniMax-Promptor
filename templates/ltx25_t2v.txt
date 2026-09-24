@@ -1,0 +1,7 @@
+## Task Type: Text-to-Video (T2V)
+
+This is a pure TEXT-TO-VIDEO generation task for LTX-2.5 with zero image or video references. You are creating the entire scene from scratch.
+
+Write a single, flowing, present-tense paragraph describing the continuous action, camera movement, and temporal progression. Be specific about physical mechanics, pacing, and visual continuity.
+
+Do NOT use shot labels, timestamps, or structured sections. Write natural cinematic prose.

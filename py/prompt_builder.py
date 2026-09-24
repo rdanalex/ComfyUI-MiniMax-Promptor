@@ -24,13 +24,19 @@ class PromptBuilder:
         task_type: str,
         template_override: str | None = None,
         duration: float = 5.0,
+        target_model: str = "MiniMax H3",
     ) -> str:
         """
         Assemble the complete system prompt from template files.
         """
         parts = []
 
-        base = self._load_template("system_base.txt")
+        # Select base template based on target model
+        if target_model == "LTX 2.5":
+            base = self._load_template("ltx25_system_base.txt")
+        else:
+            base = self._load_template("system_base.txt")
+            
         if base:
             # Inject budget based on duration (approx 20-30 words per second)
             budget = int(duration * 25)
@@ -39,12 +45,16 @@ class PromptBuilder:
         else:
             parts.append(self._fallback_base())
 
-        if template_override and template_override != "default":
-            task_template = self._load_template(template_override)
-            if not task_template:
-                task_template = self._load_template(f"{task_type.lower()}.txt")
+        # Select task template based on target model
+        if target_model == "LTX 2.5":
+            task_template = self._load_template(f"ltx25_{task_type.lower()}.txt")
         else:
-            task_template = self._load_template(f"{task_type.lower()}.txt")
+            if template_override and template_override != "default":
+                task_template = self._load_template(template_override)
+                if not task_template:
+                    task_template = self._load_template(f"{task_type.lower()}.txt")
+            else:
+                task_template = self._load_template(f"{task_type.lower()}.txt")
         
         if task_template:
             parts.append(task_template)
@@ -107,12 +117,16 @@ class PromptBuilder:
         vision_context: str = "",
         output_language: str = "English",
         image_count: int = 0,
-        has_video: bool = False
+        has_video: bool = False,
+        target_model: str = "MiniMax H3",
     ) -> str:
         """
         Construct the main user instruction string dynamically based on the available inputs.
         """
-        msg = f"Task: Generate a MiniMax {task_type} prompt.\n\n"
+        if target_model == "LTX 2.5":
+            msg = f"Task: Generate an LTX-2.5 video prompt.\n\n"
+        else:
+            msg = f"Task: Generate a MiniMax {task_type} prompt.\n\n"
         
         if vision_context:
             msg += f"--- VISION ANALYSIS ---\nHere is the detailed analysis of the referenced images and videos for this generation:\n{vision_context}\n-----------------------\n\n"
@@ -120,7 +134,7 @@ class PromptBuilder:
         msg += f"Primary Target User Description:\n{description}\n\n"
         
         # Inject exact constraints
-        msg += f"Constraint: The video will be {duration} seconds long (approx. {int(duration * 24)} frames). Pace the [Shot N] descriptions accordingly.\n"
+        msg += f"Constraint: The video will be {duration} seconds long (approx. {int(duration * 24)} frames). Pace the narrative accordingly.\n"
         
         # Inject tagging requirements
         available_tags = []
@@ -131,7 +145,10 @@ class PromptBuilder:
             
         if available_tags:
             msg += f"CRITICAL: You have the following media references available: {', '.join(available_tags)}.\n"
-            msg += "You MUST physically insert these exact tags into your [Shot N] sentences to explicitly dictate which subject/motion appears in which shot. For example: `<Picture 1> enters the room, adopting the posture shown in <Video 1>`.\n"
+            if target_model == "LTX 2.5":
+                msg += "Reference these naturally in your narrative to maintain visual continuity (e.g., 'matching the pose in <Picture 1>...').\n"
+            else:
+                msg += "You MUST physically insert these exact tags into your [Shot N] sentences to explicitly dictate which subject/motion appears in which shot. For example: `<Picture 1> enters the room, adopting the posture shown in <Video 1>`.\n"
         
         if output_language.lower() == "chinese":
             msg += "\n\nCRITICAL LANGUAGE CONSTRAINT:\nYou MUST write the ENTIRE OUTPUT PROMPT in Simplified Chinese (简体中文). Translate all technical film directions into equivalent Chinese terms."

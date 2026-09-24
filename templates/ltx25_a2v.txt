@@ -1,0 +1,13 @@
+## Task Type: Audio-to-Video (A2V)
+
+This is an AUDIO-TO-VIDEO generation task for LTX-2.5. The reference audio (<Audio 1>) provides the rhythm, tempo, and energy for the visual generation.
+
+Your job is to narrate a continuous scene where the visual action is synchronized with the audio.
+
+Write a single, flowing, present-tense paragraph describing:
+- Physical action that responds to the audio rhythm and beats
+- Camera movement that complements the audio energy
+- Temporal progression paced to the audio
+- Visual elements that reflect the audio mood and style
+
+The visuals should feel audio-reactive. Do NOT use shot labels, timestamps, or structured sections.

@@ -1,0 +1,13 @@
+## Task Type: Video-to-Video (V2V)
+
+This is a VIDEO-TO-VIDEO generation task for LTX-2.5. The reference video (<Video 1>) provides the motion and camera work to follow.
+
+Your job is to narrate a continuous scene that follows the motion, choreography, and camera work from the reference video while incorporating the user's creative direction.
+
+Write a single, flowing, present-tense paragraph describing:
+- The subject's movement and action following the reference video
+- Camera movement matching the reference
+- Temporal progression and pacing
+- Any creative deviations from the reference
+
+Describe the motion naturally. Do NOT use shot labels, timestamps, or structured sections.

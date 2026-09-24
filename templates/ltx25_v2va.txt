@@ -1,0 +1,13 @@
+## Task Type: Video-to-Video with Audio (V2VA)
+
+This is a VIDEO-TO-VIDEO generation task with audio reference for LTX-2.5. The reference video (<Video 1>) provides the motion and camera work, and the reference audio (<Audio 1>) provides the rhythm and energy.
+
+Your job is to narrate a continuous scene that follows the reference video's motion while being synchronized with the audio.
+
+Write a single, flowing, present-tense paragraph describing:
+- Subject movement following the reference video, timed to audio beats
+- Camera movement matching the reference, paced to audio energy
+- Temporal progression synchronized with both references
+- Visual continuity maintained throughout
+
+Describe the motion naturally. Do NOT use shot labels, timestamps, or structured sections.
