@@ -39,7 +39,7 @@ class H3_Promptor:
                     "tooltip": "Your main creative description of the scene.",
                 }),
                 "duration": ("FLOAT", {
-                    "default": 5, "min": 2, "max": 15, "step": 0.5,
+                    "default": 5, "min": 2, "max": 30, "step": 0.5,
                     "tooltip": "Valid duration for Minimax H3 is 2-15 seconds. For LTX 2.5, 2-30 seconds.",
                 }),
                 "target_model": (["MiniMax H3", "LTX 2.5"], {
