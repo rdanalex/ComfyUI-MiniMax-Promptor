@@ -46,9 +46,9 @@ class LLMProvider(ABC):
     """
 
     def __init__(self, api_base: str, api_key: str = "", model: str = ""):
-        self.api_base = api_base.rstrip("/")
-        self.api_key = api_key
-        self.model = model
+        self.api_base = api_base.strip().rstrip("/")
+        self.api_key = api_key.strip()
+        self.model = model.strip()
 
     @abstractmethod
     def chat(

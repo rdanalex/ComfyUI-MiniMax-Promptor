@@ -20,9 +20,9 @@ class NvidiaProvider(OpenAIProvider):
     NVIDIA's API base is: https://integrate.api.nvidia.com/v1
 
     Popular NVIDIA NIM models:
-        • meta/llama-3.1-405b-instruct
-        • nvidia/neva-22b (Vision model)
-        • meta/llama-3.2-90b-vision-instruct
+        • meta/llama-3.2-90b-vision-instruct (Vision + Text)
+        • meta/llama-3.2-11b-vision-instruct (Vision + Text)
+        • nvidia/llama-3.1-nemotron-70b-instruct (Text)
     """
 
     NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
