@@ -59,6 +59,19 @@ MAX_REF_AUDIOS = 1
 
 PROVIDERS = ["openai", "ollama", "gemini", "claude", "openrouter", "nvidia"]
 
+# A line of `custom_prompt_override` only counts as an override when its key side
+# is an explicit media tag ("<Picture 2>", "image_2", "audio 1", ...) or
+# "Global_Vibe". Anything else - e.g. a numbered checklist such as
+# "1. Identity-critical appearance: face, hair, ..." - is ordinary prose and must
+# NOT be turned into a per-slot override, otherwise the numbered paragraphs of a
+# longer instruction silently replace the per-image instruction of every slot.
+_OVERRIDE_KEY_RE = re.compile(
+    r"^\s*(?:[-*\u2022\u2013\u2014]|\d+\s*[.)])?\s*"                     # optional bullet / list marker
+    r"(?:<?\s*(?:picture|image|img|video|vid|audio|aud)\s*[_\s]?\s*\d+\s*>?"  # <Picture 1> | image_1 | image 1
+    r"|global[_\s]?vibe)\s*$",
+    re.IGNORECASE,
+)
+
 # ---------------------------------------------------------------------------
 # Media slot helpers
 # ---------------------------------------------------------------------------
@@ -233,29 +246,37 @@ class H3_Vision_Analyzer(io.ComfyNode):
             def get_prompt_str(section: str, mode: str) -> str:
                 return resolve_prompt(PROFILES, instruction_profile, section, mode)
 
-            # Generate overrides mapping
+            # Generate overrides mapping (explicit media keys only, see _OVERRIDE_KEY_RE)
             overrides = {}
             for line in custom_prompt_override.splitlines():
-                if ":" in line:
-                    k, v = line.split(":", 1)
-                    k_norm = k.lower()
-                    if "vibe" in k_norm:
-                        overrides["Global_Vibe"] = v.strip()
-                        continue
-                    item_idx = ''.join(filter(str.isdigit, k_norm))
-                    if not item_idx: continue
-                    idx = int(item_idx)
-                    
-                    if "<" not in k_norm and ("image" in k_norm or "video" in k_norm or "audio" in k_norm or "img" in k_norm or "vid" in k_norm):
-                        idx += 1
-                        
-                    if "video" in k_norm or "vid" in k_norm:
-                        key = f"<Video {idx}>"
-                    elif "audio" in k_norm:
-                        key = f"<Audio {idx}>"
-                    else:
-                        key = f"<Picture {idx}>"
+                if ":" not in line:
+                    continue
+                k, v = line.split(":", 1)
+                if not _OVERRIDE_KEY_RE.match(k):
+                    # Ordinary prose / numbered checklist item: not an override.
+                    continue
+                k_norm = k.lower()
+                if "vibe" in k_norm:
+                    overrides["Global_Vibe"] = v.strip()
+                    continue
+                item_idx = ''.join(filter(str.isdigit, k_norm))
+                if not item_idx:
+                    continue
+                idx = int(item_idx)
+
+                if "<" not in k_norm and ("image" in k_norm or "video" in k_norm or "audio" in k_norm or "img" in k_norm or "vid" in k_norm):
+                    idx += 1
+
+                if "video" in k_norm or "vid" in k_norm:
+                    key = f"<Video {idx}>"
+                elif "audio" in k_norm:
+                    key = f"<Audio {idx}>"
+                else:
+                    key = f"<Picture {idx}>"
+                if v.strip():
                     overrides[key] = v.strip()
+            if overrides:
+                log_info(f"Vision Analyzer: custom_prompt_override -> {list(overrides.keys())}")
 
             config_manager = get_config_manager()
             llm = _create_provider(provider, config_manager, api_key)

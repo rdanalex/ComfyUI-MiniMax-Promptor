@@ -154,12 +154,22 @@ class GeminiProvider(LLMProvider):
 
                 content_parts = candidates[0].get("content", {}).get("parts", [])
                 content = "".join(p.get("text", "") for p in content_parts)
+                finish_reason = candidates[0].get("finishReason", "")
 
                 if not content.strip():
-                    finish_reason = candidates[0].get("finishReason", "UNKNOWN")
                     return LLMResponse(
-                        error=f"Gemini candidate returned empty content (finishReason: {finish_reason}).",
+                        error=f"Gemini candidate returned empty content (finishReason: {finish_reason or 'UNKNOWN'}).",
                         model=model_name,
+                    )
+
+                # Partial answers are returned as-is, so an exhausted output budget
+                # used to be invisible: the caller got a prompt cut off mid-sentence.
+                if finish_reason == "MAX_TOKENS":
+                    log_warning(
+                        f"Gemini response was TRUNCATED (finishReason=MAX_TOKENS, "
+                        f"maxOutputTokens={max_tokens}): the answer stops mid-sentence. "
+                        "Raise 'max_tokens' on the node (Gemini 2.5 also spends this "
+                        "budget on its internal thinking) or shorten the instructions."
                     )
 
                 usage_meta = data.get("usageMetadata", {})
@@ -167,6 +177,7 @@ class GeminiProvider(LLMProvider):
                     "prompt_tokens": usage_meta.get("promptTokenCount", 0),
                     "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
                     "total_tokens": usage_meta.get("totalTokenCount", 0),
+                    "finish_reason": finish_reason,
                 }
 
                 log_debug(
