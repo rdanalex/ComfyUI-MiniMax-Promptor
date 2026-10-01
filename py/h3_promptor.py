@@ -244,21 +244,29 @@ class H3_Promptor:
 
                 # 8. Truncation safety net
                 if "non_diegetic_music:" not in cleaned_prompt:
-                    cleaned_prompt += ("\n\nnon_diegetic_music: The complete final "
-                                       "audio track is <Audio 1>. No additional "
-                                       "audio is synthesized.")
+                    if has_audio:
+                        cleaned_prompt += ("\n\nnon_diegetic_music: The complete final "
+                                           "audio track is <Audio 1>. No additional "
+                                           "audio is synthesized.")
+                    else:
+                        # No audio reference attached: never cite a phantom <Audio 1>.
+                        cleaned_prompt += "\n\nnon_diegetic_music: N/A"
 
-                # 9. Six-section backstop (Branch-2 runs only)
+                # 9. Six-section backstop (adds summary/retention only when the LLM
+                #    dropped them). The media tokens are derived from the ACTUAL inputs
+                #    so no phantom <Picture N>/<Video N>/<Audio N> refs are injected.
                 if ("summary:" not in cleaned_prompt
                         and "subject_definitions:" in cleaned_prompt
                         and "detailed_description:" in cleaned_prompt):
+                    backstop = ("summary: "
+                                + self.prompt_builder.generate_summary(has_audio)
+                                + "\n\n")
+                    retention = self.prompt_builder.generate_retention_analysis(
+                        image_count=image_count, has_video=has_video, has_audio=has_audio)
+                    if retention:
+                        backstop += "retention_analysis:\n" + retention + "\n\n"
                     cleaned_prompt = cleaned_prompt.replace(
-                        "detailed_description:",
-                        "summary: reference generation + audio reuse\n\n"
-                        "retention_analysis:\n"
-                        "<Picture 1>/<Picture 2>: fully_preserved\n"
-                        "<Audio 1>: fully_copy\n\n"
-                        "detailed_description:", 1)
+                        "detailed_description:", backstop + "detailed_description:", 1)
                 # 10. Normalize alignment line to the very top
                 am = re.search(r"(How the reference pictures align[^\n]*)\n", cleaned_prompt)
                 if am and not cleaned_prompt.startswith("How the reference pictures align"):
@@ -266,8 +274,10 @@ class H3_Promptor:
                     cleaned_prompt = cleaned_prompt.replace(line + "\n", "", 1)
                     cleaned_prompt = line + "\n\n" + cleaned_prompt
 
-                # 11. Enforce fully_copy citation in the music section
-                if ("non_diegetic_music:" in cleaned_prompt
+                # 11. Enforce fully_copy citation in the music section (only when an
+                #     audio reference is actually attached)
+                if (has_audio
+                        and "non_diegetic_music:" in cleaned_prompt
                         and "No additional audio is synthesized" not in cleaned_prompt):
                     cleaned_prompt += (" The complete final audio track is <Audio 1>. "
                                        "No additional audio is synthesized.")

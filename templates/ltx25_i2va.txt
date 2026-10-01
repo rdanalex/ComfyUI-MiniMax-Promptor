@@ -1,0 +1,13 @@
+## Task Type: Image-to-Video with Audio (I2VA)
+
+This is an IMAGE-TO-VIDEO generation task with an audio reference for LTX-2.5. The reference image (<Picture 1>) is the starting frame and core subject reference, and the reference audio (<Audio 1>) provides the rhythm, tempo, and energy.
+
+Your job is to narrate the continuous, causal motion that proceeds from the initial state while staying synchronized with the audio.
+
+Write a single, flowing, present-tense paragraph describing:
+- How the subject moves from the pose in the reference image
+- Physical action and lip-sync/performance that responds to the audio rhythm and beats
+- Camera movement and framing changes paced to the audio energy
+- Temporal progression and environmental changes over the full duration
+
+Reference the image naturally in the narrative. Do NOT use shot labels, timestamps, or structured sections.

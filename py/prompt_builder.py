@@ -5,12 +5,32 @@ This custom node for ComfyUI provides automation suite for generating MiniMax H3
 This integration script follows GPL-3.0 License.
 """
 
+import re
 from pathlib import Path
 from .utils import log_info, log_error, log_debug
 
 
 # Templates directory
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+# Leading phrases the vision analyzer tends to prepend to a description. When the
+# tag is rendered as "<Picture 1> is {desc}" these would otherwise read as
+# "<Picture 1> is The main subject is ..." (a duplicated intro).
+_SUBJECT_INTRO_RE = re.compile(
+    r"^(?:the\s+main\s+subject\s+(?:is|appears\s+(?:as|to\s+be))|"
+    r"the\s+primary\s+subject\s+is|"
+    r"the\s+subject\s+is|"
+    r"this\s+(?:image|picture|photo|frame)\s+(?:shows|depicts|features)|"
+    r"the\s+(?:image|picture|photo|frame)\s+(?:shows|depicts|features)|"
+    r"this\s+is)\s+",
+    re.IGNORECASE,
+)
+
+
+def _strip_subject_intro(desc: str) -> str:
+    """Remove a leading 'The main subject is' style intro so the rendered
+    '<Picture 1> is ...' line does not read '<Picture 1> is The main subject is ...'."""
+    return _SUBJECT_INTRO_RE.sub("", desc.strip(), count=1)
 
 
 class PromptBuilder:
@@ -86,7 +106,7 @@ class PromptBuilder:
                 key = f"<Picture {i+1}>"
                 desc = parsed_vision_dict.get(key, "")
                 if desc:
-                    lines.append(f"{key} is {desc}")
+                    lines.append(f"{key} is {_strip_subject_intro(desc)}")
                 else:
                     lines.append(f"{key} acts as a visual anchor.")
             if has_video:
@@ -108,6 +128,33 @@ class PromptBuilder:
                 lines.append("<Video 1> is the reference video: follow its motion and camera work exactly.")
             
             return " ".join(lines)
+
+    def generate_summary(self, has_audio: bool = False) -> str:
+        """
+        One-line summary used by the MiniMax six-section backstop. Kept in sync with
+        the retention block so we never claim audio reuse when no audio is attached.
+        """
+        return "reference generation + audio reuse" if has_audio else "reference generation"
+
+    def generate_retention_analysis(self, image_count: int, has_video: bool, has_audio: bool) -> str:
+        """
+        Build the MiniMax `retention_analysis:` block listing ONLY the media that is
+        actually attached. This prevents phantom tokens such as `<Picture 2>` or
+        `<Audio 1>` from being injected when only a single image (or no audio) is used.
+        """
+        lines = []
+
+        picture_tags = [f"<Picture {i + 1}>" for i in range(max(0, int(image_count)))]
+        if picture_tags:
+            lines.append(f"{'/'.join(picture_tags)}: fully_preserved")
+
+        if has_video:
+            lines.append("<Video 1>: fully_preserved")
+
+        if has_audio:
+            lines.append("<Audio 1>: fully_copy")
+
+        return "\n".join(lines)
 
     def build_user_message(
         self,
